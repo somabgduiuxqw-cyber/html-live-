@@ -1,0 +1,6 @@
+{
+  "name": "HTML Live",
+  "description": "Mobile-first HTML/CSS/JavaScript web and game development IDE with live preview, error console, offline courses, and AI assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
