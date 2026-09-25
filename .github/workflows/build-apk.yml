@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -49,46 +50,93 @@ jobs:
 
           echo "Java environment verified successfully."
 
+      - name: Locate Gradle project root
+        id: find_gradle
+        run: |
+          echo "=== Workspace Inspection ==="
+          pwd
+          ls -la
+
+          # Determine where settings.gradle.kts or settings.gradle resides
+          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
+            PROJECT_DIR="."
+            echo "Found Gradle build root in current directory: $PROJECT_DIR"
+          else
+            FOUND_SETTINGS=$(find . -maxdepth 4 -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+            if [ -n "$FOUND_SETTINGS" ]; then
+              PROJECT_DIR=$(dirname "$FOUND_SETTINGS")
+              echo "Found Gradle build root in subfolder: $PROJECT_DIR"
+            else
+              echo "Warning: No settings.gradle found in workspace. Searching all files:"
+              find . -maxdepth 3
+              PROJECT_DIR="."
+            fi
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          build-root-directory: ${{ steps.find_gradle.outputs.project_dir }}
 
       - name: Create temporary debug keystore
         run: |
-          echo "=== Checking for debug.keystore ==="
-          if [ ! -f "./debug.keystore" ]; then
-            echo "debug.keystore not found. Generating temporary debug keystore..."
-            keytool -genkey -v \
-              -keystore ./debug.keystore \
-              -alias androiddebugkey \
-              -storepass android \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000
-          else
-            echo "debug.keystore already exists."
-          fi
+          PROJECT_DIR="${{ steps.find_gradle.outputs.project_dir }}"
+          echo "=== Setting up debug.keystore in root and $PROJECT_DIR ==="
 
-          if [ ! -f "./debug.keystore" ]; then
-            echo "Error: ./debug.keystore could not be generated or found."
-            exit 1
+          generate_keystore() {
+            local target="$1"
+            if [ ! -f "$target" ]; then
+              echo "Generating temporary debug keystore at $target..."
+              keytool -genkey -v \
+                -keystore "$target" \
+                -alias androiddebugkey \
+                -storepass android \
+                -keypass android \
+                -dname "CN=Android Debug,O=Android,C=US" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000
+            else
+              echo "Keystore already exists at $target."
+            fi
+          }
+
+          generate_keystore "./debug.keystore"
+          if [ "$PROJECT_DIR" != "." ]; then
+            generate_keystore "$PROJECT_DIR/debug.keystore"
           fi
 
           echo "Temporary debug keystore verified."
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: |
+          PROJECT_DIR="${{ steps.find_gradle.outputs.project_dir }}"
+          echo "=== Building debug APK in project directory: $PROJECT_DIR ==="
+          gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Locate and verify debug APK
         id: locate_apk
         run: |
+          PROJECT_DIR="${{ steps.find_gradle.outputs.project_dir }}"
           echo "=== Locating Debug APK ==="
-          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
+
+          # Primary expected location
+          APK_PATH=$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -name "*.apk" -type f 2>/dev/null | head -n 1)
+
+          # Fallback search anywhere in workspace
           if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
-            echo "Error: Debug APK not found in app/build/outputs/apk/debug"
+            APK_PATH=$(find . -name "*debug*.apk" -type f | head -n 1)
+          fi
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+          fi
+
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "Error: Debug APK not found in $PROJECT_DIR or workspace."
+            find . -name "*.apk" || true
             exit 1
           fi
 

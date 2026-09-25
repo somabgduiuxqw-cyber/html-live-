@@ -74,6 +74,30 @@ class SecurePreferences(context: Context) {
         prefs.edit().putBoolean("has_completed_onboarding", completed).apply()
     }
 
+    fun getDownloadedModuleIds(): Set<String> {
+        return prefs.getStringSet("downloaded_module_ids", null) ?: setOf(
+            "mod_html_foundation",
+            "mod_html_interactive",
+            "mod_css_box_model",
+            "mod_css_flex_grid",
+            "mod_js_basics",
+            "mod_game_arcade",
+            "mod_web_projects"
+        )
+    }
+
+    fun setDownloadedModuleIds(ids: Set<String>) {
+        prefs.edit().putStringSet("downloaded_module_ids", ids).apply()
+    }
+
+    fun getCompletedLessonIds(): Set<String> {
+        return prefs.getStringSet("completed_lesson_ids", emptySet()) ?: emptySet()
+    }
+
+    fun setCompletedLessonIds(ids: Set<String>) {
+        prefs.edit().putStringSet("completed_lesson_ids", ids).apply()
+    }
+
     companion object {
         fun maskKey(key: String): String {
             if (key.length <= 8) return "••••••••"

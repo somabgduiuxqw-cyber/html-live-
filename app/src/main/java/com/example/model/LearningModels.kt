@@ -23,7 +23,31 @@ data class Lesson(
     val commonMistakes: List<String>,
     val challengeQuestion: String,
     val challengeHint: String,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val moduleId: String = ""
+)
+
+data class TutorialModule(
+    val id: String,
+    val category: CourseCategory,
+    val title: String,
+    val description: String,
+    val level: String, // "Beginner", "Intermediate", "Advanced"
+    val estimatedMinutes: Int,
+    val sizeKb: Int, // Simulated offline package size, e.g. 140 KB
+    val isDownloaded: Boolean = true,
+    val downloadDate: String = "Offline Ready",
+    val lessonIds: List<String> = emptyList(),
+    val tags: List<String> = emptyList()
+)
+
+data class OfflineStorageStats(
+    val totalModulesCount: Int,
+    val downloadedModulesCount: Int,
+    val totalLessonsCount: Int,
+    val completedLessonsCount: Int,
+    val usedOfflineStorageKb: Int,
+    val totalOfflineStorageKb: Int
 )
 
 data class CourseProgress(
