@@ -5,8 +5,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AiResponseResult
 import com.example.data.ai.AiService
+import com.example.data.git.DetectedProjectType
+import com.example.data.git.GitCredentials
+import com.example.data.git.GitFileDiff
+import com.example.data.git.GitMergeConflict
+import com.example.data.git.GitProgressUpdate
+import com.example.data.git.GitRepositoryInfo
+import com.example.data.git.GitRepositoryManager
+import com.example.data.git.GitStatusResult
 import com.example.data.repository.ProjectRepository
 import com.example.data.repository.TemplateProject
+import com.example.data.storage.GitCredentialStore
 import com.example.data.storage.SecurePreferences
 import com.example.model.AiChangeProposal
 import com.example.model.AiChatMessage
@@ -25,11 +34,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 enum class NavDestination(val title: String, val iconName: String) {
     HOME("Home", "home"),
     EDITOR("Editor", "code"),
     AI("AI", "auto_awesome"),
+    GIT_CLONE("Git Clone", "download"),
+    GIT_PROJECT("Git Hub", "commit"),
     LEARN("Learn", "school"),
     GAMES("Game Studio", "sports_esports"),
     WEBSITES("Website Builder", "web"),
@@ -75,6 +87,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAiLoading = MutableStateFlow(false)
     val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
 
+    val gitManager = GitRepositoryManager(application)
+    val gitCredentialStore = GitCredentialStore(application)
+
+    private val _gitProgress = MutableStateFlow<GitProgressUpdate?>(null)
+    val gitProgress: StateFlow<GitProgressUpdate?> = _gitProgress.asStateFlow()
+
+    private val _gitDetectedType = MutableStateFlow<DetectedProjectType?>(null)
+    val gitDetectedType: StateFlow<DetectedProjectType?> = _gitDetectedType.asStateFlow()
+
+    private val _gitClonedProject = MutableStateFlow<Project?>(null)
+    val gitClonedProject: StateFlow<Project?> = _gitClonedProject.asStateFlow()
+
+    private val _gitRepoInfo = MutableStateFlow<GitRepositoryInfo?>(null)
+    val gitRepoInfo: StateFlow<GitRepositoryInfo?> = _gitRepoInfo.asStateFlow()
+
+    private val _gitStatus = MutableStateFlow(GitStatusResult())
+    val gitStatus: StateFlow<GitStatusResult> = _gitStatus.asStateFlow()
+
+    private val _gitDiffs = MutableStateFlow<List<GitFileDiff>>(emptyList())
+    val gitDiffs: StateFlow<List<GitFileDiff>> = _gitDiffs.asStateFlow()
+
+    private val _gitBranches = MutableStateFlow<List<String>>(listOf("main"))
+    val gitBranches: StateFlow<List<String>> = _gitBranches.asStateFlow()
+
+    private val _gitReadmeContent = MutableStateFlow<String?>(null)
+    val gitReadmeContent: StateFlow<String?> = _gitReadmeContent.asStateFlow()
+
+    private val _gitConflicts = MutableStateFlow<List<GitMergeConflict>>(emptyList())
+    val gitConflicts: StateFlow<List<GitMergeConflict>> = _gitConflicts.asStateFlow()
+
+    private val _isGitOperating = MutableStateFlow(false)
+    val isGitOperating: StateFlow<Boolean> = _isGitOperating.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.initDefaultProjectsIfNeeded()
@@ -116,6 +161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        loadGitRepoState(project.id)
     }
 
     fun selectFile(fileName: String) {
@@ -126,6 +172,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val proj = _activeProject.value ?: return
         viewModelScope.launch {
             repository.saveFile(proj.id, fileName, newContent)
+            val repoDir = gitManager.getRepoDir(proj.id)
+            if (File(repoDir, ".git").exists()) {
+                val f = File(repoDir, fileName)
+                try {
+                    f.parentFile?.mkdirs()
+                    f.writeText(newContent, Charsets.UTF_8)
+                    _gitStatus.value = gitManager.getStatus(repoDir)
+                    _gitDiffs.value = gitManager.getDiff(repoDir)
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -297,6 +353,155 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (scriptFile != null) {
             val updated = scriptFile.content + "\n\n// Injected Level Map Data\nconst LEVEL_MAP = $json;\n"
             updateFileContent("script.js", updated)
+        }
+    }
+
+    // Git Operations
+    fun cloneGitProject(repoUrl: String, projectName: String, credentials: GitCredentials?) {
+        viewModelScope.launch {
+            _isGitOperating.value = true
+            _gitProgress.value = GitProgressUpdate(stage = "Connecting...", percentage = 0.05f, statusMessage = "Validating repository URL...")
+            _gitDetectedType.value = null
+            _gitClonedProject.value = null
+
+            val projId = UUID.randomUUID().toString()
+            val targetDir = gitManager.getRepoDir(projId)
+
+            val cloneResult = gitManager.cloneRepository(
+                repoUrl = repoUrl,
+                targetDir = targetDir,
+                credentials = credentials,
+                onProgress = { update ->
+                    _gitProgress.value = update
+                }
+            )
+
+            if (cloneResult.isSuccess) {
+                if (credentials != null) {
+                    gitCredentialStore.saveCredentials(repoUrl, credentials)
+                }
+
+                val importedProj = repository.importProjectFromGitDirectory(
+                    projectId = projId,
+                    name = projectName,
+                    directory = targetDir,
+                    repoUrl = repoUrl
+                )
+                _gitClonedProject.value = importedProj
+
+                val detected = gitManager.detectProjectType(targetDir)
+                _gitDetectedType.value = detected
+
+                selectProject(importedProj)
+                loadGitRepoState(projId, repoUrl)
+            }
+            _isGitOperating.value = false
+        }
+    }
+
+    fun loadGitRepoState(projectId: String, repoUrl: String = "") {
+        viewModelScope.launch {
+            val dir = gitManager.getRepoDir(projectId)
+            if (File(dir, ".git").exists()) {
+                val info = gitManager.getRepoInfo(dir, repoUrl, projectId)
+                _gitRepoInfo.value = info
+                _gitStatus.value = gitManager.getStatus(dir)
+                _gitDiffs.value = gitManager.getDiff(dir)
+                _gitBranches.value = gitManager.getBranches(dir)
+                _gitReadmeContent.value = gitManager.readReadme(dir)
+            }
+        }
+    }
+
+    fun switchGitBranch(branchName: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            _isGitOperating.value = true
+            val dir = gitManager.getRepoDir(proj.id)
+            val res = gitManager.switchBranch(dir, branchName)
+            if (res.isSuccess) {
+                repository.syncFilesFromDirectory(proj.id, dir)
+                loadGitRepoState(proj.id, _gitRepoInfo.value?.repoUrl ?: "")
+            }
+            _isGitOperating.value = false
+        }
+    }
+
+    fun pullGitUpdates() {
+        val proj = _activeProject.value ?: return
+        val url = _gitRepoInfo.value?.repoUrl ?: ""
+        val creds = gitCredentialStore.getCredentials(url)
+        viewModelScope.launch {
+            _isGitOperating.value = true
+            val dir = gitManager.getRepoDir(proj.id)
+            val res = gitManager.pullRepository(dir, creds) { update ->
+                _gitProgress.value = update
+            }
+            res.onSuccess { summary ->
+                _gitConflicts.value = summary.conflicts
+                repository.syncFilesFromDirectory(proj.id, dir)
+                loadGitRepoState(proj.id, url)
+            }
+            _isGitOperating.value = false
+        }
+    }
+
+    fun commitGitChanges(message: String, selectedFiles: List<String>) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            val dir = gitManager.getRepoDir(proj.id)
+            val res = gitManager.commit(dir, message, selectedFiles)
+            if (res.isSuccess) {
+                loadGitRepoState(proj.id, _gitRepoInfo.value?.repoUrl ?: "")
+            }
+        }
+    }
+
+    fun pushGitChanges() {
+        val proj = _activeProject.value ?: return
+        val url = _gitRepoInfo.value?.repoUrl ?: ""
+        val creds = gitCredentialStore.getCredentials(url)
+        viewModelScope.launch {
+            _isGitOperating.value = true
+            val dir = gitManager.getRepoDir(proj.id)
+            gitManager.push(dir, creds)
+            _isGitOperating.value = false
+            loadGitRepoState(proj.id, url)
+        }
+    }
+
+    fun resolveGitConflict(filePath: String, chosenContent: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            val dir = gitManager.getRepoDir(proj.id)
+            gitManager.resolveConflict(dir, filePath, chosenContent)
+            _gitConflicts.value = _gitConflicts.value.filter { it.filePath != filePath }
+            repository.saveFile(proj.id, filePath, chosenContent)
+            loadGitRepoState(proj.id, _gitRepoInfo.value?.repoUrl ?: "")
+        }
+    }
+
+    fun saveGitReadme(content: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            val dir = gitManager.getRepoDir(proj.id)
+            gitManager.writeReadme(dir, content)
+            _gitReadmeContent.value = content
+            repository.saveFile(proj.id, "README.md", content)
+        }
+    }
+
+    fun createFileInGitRepo(fileName: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            val dir = gitManager.getRepoDir(proj.id)
+            val file = File(dir, fileName)
+            if (!file.exists()) {
+                file.parentFile?.mkdirs()
+                file.createNewFile()
+            }
+            addNewFile(fileName)
+            loadGitRepoState(proj.id, _gitRepoInfo.value?.repoUrl ?: "")
         }
     }
 }

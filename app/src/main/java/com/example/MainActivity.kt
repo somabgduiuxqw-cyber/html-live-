@@ -23,6 +23,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Commit
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Palette
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,9 +62,16 @@ import com.example.ui.components.WebsiteBuilderView
 import com.example.ui.screens.AiAssistantScreen
 import com.example.ui.screens.EditorScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.HtmlQnaModal
+import com.example.ui.screens.HtmlTagsReferenceModal
+import com.example.ui.screens.HttpRequestModal
+import com.example.ui.screens.InAppBrowserModal
 import com.example.ui.screens.LearningScreen
+import com.example.ui.screens.PhotoToCodeModal
 import com.example.ui.screens.ProjectsScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.git.GitCloneScreen
+import com.example.ui.screens.git.GitProjectScreen
 import com.example.ui.theme.HtmlLiveTheme
 import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.NavDestination
@@ -213,6 +223,8 @@ private fun NavIconWithBadge(destination: NavDestination, errorCount: Int) {
         NavDestination.HOME -> Icons.Default.Home
         NavDestination.EDITOR -> Icons.Default.Code
         NavDestination.AI -> Icons.Default.AutoAwesome
+        NavDestination.GIT_CLONE -> Icons.Default.Download
+        NavDestination.GIT_PROJECT -> Icons.Default.Commit
         NavDestination.LEARN -> Icons.Default.School
         NavDestination.GAMES -> Icons.Default.SportsEsports
         NavDestination.WEBSITES -> Icons.Default.Web
@@ -250,6 +262,23 @@ private fun ScreenContent(
     isAiLoading: Boolean,
     allProjects: List<com.example.model.Project>
 ) {
+    var showHttpModal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showBrowserModal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showPhotoModal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showTagsModal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showQnaModal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    val gitProgress by viewModel.gitProgress.collectAsState()
+    val gitDetectedType by viewModel.gitDetectedType.collectAsState()
+    val gitClonedProject by viewModel.gitClonedProject.collectAsState()
+    val gitRepoInfo by viewModel.gitRepoInfo.collectAsState()
+    val gitStatus by viewModel.gitStatus.collectAsState()
+    val gitDiffs by viewModel.gitDiffs.collectAsState()
+    val gitBranches by viewModel.gitBranches.collectAsState()
+    val gitReadmeContent by viewModel.gitReadmeContent.collectAsState()
+    val gitConflicts by viewModel.gitConflicts.collectAsState()
+    val isGitOperating by viewModel.isGitOperating.collectAsState()
+
     when (destination) {
         NavDestination.HOME -> {
             HomeScreen(
@@ -260,15 +289,111 @@ private fun ScreenContent(
                     viewModel.selectProject(it)
                     viewModel.navigateTo(NavDestination.EDITOR)
                 },
-                onStartLearning = { viewModel.navigateTo(NavDestination.LEARN) },
-                onCreateWebsite = { viewModel.navigateTo(NavDestination.WEBSITES) },
-                onCreateGame = { viewModel.navigateTo(NavDestination.GAMES) },
-                onAskAi = { viewModel.navigateTo(NavDestination.AI) },
-                onExploreProjects = { viewModel.navigateTo(NavDestination.PROJECTS) },
+                onMyProjects = { viewModel.navigateTo(NavDestination.PROJECTS) },
+                onQuickEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onCodeEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onLivePreview = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onSourceCode = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onHtmlExamples = { viewModel.navigateTo(NavDestination.LEARN) },
+                onHtmlTutorials = { viewModel.navigateTo(NavDestination.LEARN) },
+                onHtmlTags = { showTagsModal = true },
+                onHtmlQna = { showQnaModal = true },
+                onGitCloneProject = { viewModel.navigateTo(NavDestination.GIT_CLONE) },
+                onGitProjects = { viewModel.navigateTo(NavDestination.GIT_PROJECT) },
+                onGitStatus = { viewModel.navigateTo(NavDestination.GIT_PROJECT) },
+                onHttpRequest = { showHttpModal = true },
+                onPhotoToCode = { showPhotoModal = true },
+                onInAppBrowser = { showBrowserModal = true },
+                onColorLab = { viewModel.navigateTo(NavDestination.COLORS) },
+                onAiAssistant = { viewModel.navigateTo(NavDestination.AI) },
+                onAiWebsiteBuilder = {
+                    viewModel.navigateTo(NavDestination.AI)
+                    val contextMap = activeFiles.associate { it.name to it.content }
+                    viewModel.sendAiPrompt(
+                        "Build a complete, responsive modern website with clean styling, header navigation, hero banner, interactive cards, and footer.",
+                        contextMap,
+                        com.example.ui.screens.AiContextScope.FULL_PROJECT
+                    )
+                },
+                onAiGameBuilder = {
+                    viewModel.navigateTo(NavDestination.AI)
+                    val contextMap = activeFiles.associate { it.name to it.content }
+                    viewModel.sendAiPrompt(
+                        "Build an arcade 2D Canvas HTML5 game with player controls, animation loop, score system, and game over screen.",
+                        contextMap,
+                        com.example.ui.screens.AiContextScope.FULL_PROJECT
+                    )
+                },
+                onWebsiteBuilder = { viewModel.navigateTo(NavDestination.WEBSITES) },
+                onGameBuilder = { viewModel.navigateTo(NavDestination.GAMES) },
+                onGameMapEditor = { viewModel.navigateTo(NavDestination.GAMES) },
                 onSelectTemplate = { template ->
                     viewModel.createProject(template.title, template)
                 }
             )
+        }
+
+        NavDestination.GIT_CLONE -> {
+            GitCloneScreen(
+                existingProjects = allProjects,
+                progress = gitProgress,
+                detectedType = gitDetectedType,
+                clonedProject = gitClonedProject,
+                onCloneRequest = { url, name, creds ->
+                    viewModel.cloneGitProject(url, name, creds)
+                },
+                onOpenProject = {
+                    viewModel.selectProject(it)
+                    viewModel.navigateTo(NavDestination.EDITOR)
+                },
+                onRunProjectPreview = {
+                    viewModel.selectProject(it)
+                    viewModel.navigateTo(NavDestination.EDITOR)
+                },
+                onBack = { viewModel.handleBack() }
+            )
+        }
+
+        NavDestination.GIT_PROJECT -> {
+            val proj = activeProject ?: allProjects.firstOrNull()
+            if (proj != null) {
+                GitProjectScreen(
+                    project = proj,
+                    files = activeFiles,
+                    repoInfo = gitRepoInfo,
+                    status = gitStatus,
+                    diffs = gitDiffs,
+                    branches = gitBranches,
+                    readmeContent = gitReadmeContent,
+                    conflicts = gitConflicts,
+                    isOperating = isGitOperating,
+                    operationProgress = gitProgress,
+                    onSwitchBranch = { viewModel.switchGitBranch(it) },
+                    onPull = { viewModel.pullGitUpdates() },
+                    onCommit = { msg, changedFiles -> viewModel.commitGitChanges(msg, changedFiles) },
+                    onPush = { viewModel.pushGitChanges() },
+                    onResolveConflict = { path, chosen -> viewModel.resolveGitConflict(path, chosen) },
+                    onRefreshStatus = { viewModel.loadGitRepoState(proj.id) },
+                    onSaveReadme = { viewModel.saveGitReadme(it) },
+                    onOpenFile = { file ->
+                        viewModel.selectFile(file.name)
+                        viewModel.navigateTo(NavDestination.EDITOR)
+                    },
+                    onDeleteFile = { viewModel.deleteFile(it) },
+                    onCreateFile = { viewModel.createFileInGitRepo(it) },
+                    onOpenInEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
+                    onRunPreview = { viewModel.navigateTo(NavDestination.EDITOR) },
+                    onAiPrompt = { prompt, contextMap ->
+                        viewModel.navigateTo(NavDestination.AI)
+                        viewModel.sendAiPrompt(prompt, contextMap, com.example.ui.screens.AiContextScope.FULL_PROJECT)
+                    },
+                    onBack = { viewModel.handleBack() }
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No Git project selected. Please clone or select a project.", color = Color.Gray)
+                }
+            }
         }
 
         NavDestination.EDITOR -> {
@@ -386,5 +511,49 @@ private fun ScreenContent(
                 aiService = viewModel.aiService
             )
         }
+    }
+
+    if (showHttpModal) {
+        HttpRequestModal(
+            onDismiss = { showHttpModal = false },
+            onInjectDataIntoProject = { json ->
+                viewModel.addNewFile("data.json")
+                viewModel.updateFileContent("data.json", json)
+            }
+        )
+    }
+
+    if (showBrowserModal) {
+        InAppBrowserModal(
+            onDismiss = { showBrowserModal = false }
+        )
+    }
+
+    if (showPhotoModal) {
+        PhotoToCodeModal(
+            onDismiss = { showPhotoModal = false },
+            onInjectCode = { html, css ->
+                viewModel.updateFileContent("index.html", html)
+                viewModel.updateFileContent("style.css", css)
+                viewModel.navigateTo(NavDestination.EDITOR)
+            }
+        )
+    }
+
+    if (showTagsModal) {
+        HtmlTagsReferenceModal(
+            onDismiss = { showTagsModal = false },
+            onTryTag = { _, snippet ->
+                viewModel.updateFileContent("index.html", "<!DOCTYPE html>\n<html>\n<body>\n$snippet\n</body>\n</html>")
+                showTagsModal = false
+                viewModel.navigateTo(NavDestination.EDITOR)
+            }
+        )
+    }
+
+    if (showQnaModal) {
+        HtmlQnaModal(
+            onDismiss = { showQnaModal = false }
+        )
     }
 }

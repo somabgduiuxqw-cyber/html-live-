@@ -45,6 +45,9 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-test-core = { group = "androidx.test", name = "core", version = "1.6.1" }
 
+# Git
+jgit = { group = "org.eclipse.jgit", name = "org.eclipse.jgit", version = "5.13.3.202401111512-r" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

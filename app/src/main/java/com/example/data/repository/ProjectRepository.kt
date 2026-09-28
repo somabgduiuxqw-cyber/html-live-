@@ -217,4 +217,57 @@ class ProjectRepository(private val context: Context) {
         dao.insertFiles(entities)
         project
     }
+
+    // Import from cloned Git Directory
+    suspend fun importProjectFromGitDirectory(
+        projectId: String,
+        name: String,
+        directory: File,
+        repoUrl: String
+    ): Project = withContext(Dispatchers.IO) {
+        val project = Project(
+            id = projectId,
+            name = name,
+            description = "Cloned from $repoUrl",
+            type = ProjectType.WEBSITE
+        )
+        dao.insertProject(ProjectEntity.fromDomain(project))
+
+        syncFilesFromDirectory(projectId, directory)
+        project
+    }
+
+    suspend fun syncFilesFromDirectory(projectId: String, directory: File) = withContext(Dispatchers.IO) {
+        val entities = mutableListOf<ProjectFileEntity>()
+        if (directory.exists() && directory.isDirectory) {
+            directory.walkTopDown()
+                .filter { file ->
+                    !file.absolutePath.contains("/.git") && file.isFile
+                }
+                .forEach { file ->
+                    val relativePath = file.relativeTo(directory).path
+                    val fileName = file.name
+                    // Only read text files up to 2MB to keep performance fast
+                    if (file.length() <= 2 * 1024 * 1024) {
+                        val content = try { file.readText(Charsets.UTF_8) } catch (_: Exception) { "" }
+                        val isMain = fileName.equals("index.html", ignoreCase = true)
+                        entities.add(
+                            ProjectFileEntity(
+                                id = UUID.randomUUID().toString(),
+                                projectId = projectId,
+                                name = fileName,
+                                path = relativePath,
+                                content = content,
+                                isMain = isMain
+                            )
+                        )
+                    }
+                }
+        }
+
+        if (entities.isNotEmpty()) {
+            dao.deleteFilesForProject(projectId)
+            dao.insertFiles(entities)
+        }
+    }
 }
