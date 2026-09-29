@@ -281,6 +281,7 @@ private fun ScreenContent(
     val gitReadmeContent by viewModel.gitReadmeContent.collectAsState()
     val gitConflicts by viewModel.gitConflicts.collectAsState()
     val isGitOperating by viewModel.isGitOperating.collectAsState()
+    val aiDebugInfo by viewModel.aiDebugInfo.collectAsState()
 
     when (destination) {
         NavDestination.HOME -> {
@@ -477,7 +478,8 @@ private fun ScreenContent(
                     viewModel.applyChangeProposal(proposal)
                 },
                 onOpenSettings = { viewModel.navigateTo(NavDestination.SETTINGS) },
-                onClearChat = { viewModel.clearChat() }
+                onClearChat = { viewModel.clearChat() },
+                debugInfo = aiDebugInfo
             )
         }
 

@@ -98,4 +98,32 @@ class ApkBuilderTest {
         assertTrue(check.canPackage)
         assertTrue(check.missingFiles.contains("missing.css"))
     }
+
+    @Test
+    fun `auto package name generator creates valid android package identifier`() {
+        val pkg = ApkConfig.autoGeneratePackage("Atp", "My HTML Game")
+        assertEquals("com.atp.myhtmlgame", pkg)
+        assertNull(ApkConfig.validatePackageName(pkg))
+    }
+
+    @Test
+    fun `compatibility check produces all 12 evaluation categories`() {
+        val files = listOf(
+            ProjectFile("f1", "p1", "index.html", "html", "<html><body><canvas></canvas><audio></audio><video></video></body></html>")
+        )
+        val report = ProjectAnalyzer.checkCompatibility(files)
+        val names = report.features.map { it.name }
+        assertTrue(names.contains("HTML"))
+        assertTrue(names.contains("CSS"))
+        assertTrue(names.contains("JavaScript"))
+        assertTrue(names.contains("Canvas"))
+        assertTrue(names.contains("SVG"))
+        assertTrue(names.contains("Local Assets"))
+        assertTrue(names.contains("LocalStorage"))
+        assertTrue(names.contains("Fetch"))
+        assertTrue(names.contains("Audio"))
+        assertTrue(names.contains("Video"))
+        assertTrue(names.contains("Web APIs"))
+        assertTrue(names.contains("External Resources"))
+    }
 }

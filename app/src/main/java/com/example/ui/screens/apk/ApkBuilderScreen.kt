@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -33,20 +35,27 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,16 +83,26 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.apk.ApkBuildProfile
 import com.example.data.apk.ApkBuildProgress
 import com.example.data.apk.ApkBuildStep
 import com.example.data.apk.ApkConfig
+import com.example.data.apk.ApkPreset
 import com.example.data.apk.ApkValidationResult
+import com.example.data.apk.BackButtonBehavior
 import com.example.data.apk.CompatibilityAnalysisResult
+import com.example.data.apk.DisplayMode
+import com.example.data.apk.ExternalLinkBehavior
 import com.example.data.apk.FeatureStatus
+import com.example.data.apk.IconMode
+import com.example.data.apk.InternetAccessMode
 import com.example.data.apk.ProjectAnalyzer
 import com.example.data.apk.ProjectErrorCheckResult
 import com.example.data.apk.ResourceAnalysisResult
+import com.example.data.apk.ScreenOrientation
+import com.example.data.apk.StartupType
 import com.example.data.apk.WarningLevel
+import com.example.data.apk.WebRuntimeConfig
 import com.example.model.Project
 import com.example.model.ProjectFile
 
@@ -106,29 +125,45 @@ fun ApkBuilderScreen(
 ) {
     var currentStep by remember { mutableStateOf(ApkBuildStep.SELECT_PROJECT) }
 
-    // Form inputs
+    // Core Form inputs
     var username by remember(savedUsername) { mutableStateOf(savedUsername.ifBlank { "Developer" }) }
-    var appName by remember(activeProject) { mutableStateOf(activeProject?.name ?: "My Web App") }
-    var packageName by remember(activeProject) {
-        val sanitized = (activeProject?.name ?: "webapp")
-            .lowercase()
-            .replace("[^a-z0-9]".toRegex(), "")
-            .ifEmpty { "webapp" }
-        mutableStateOf("com.htmllive.$sanitized")
+    var appName by remember(activeProject) { mutableStateOf(activeProject?.name ?: "My HTML Game") }
+    var packageName by remember(activeProject, username, appName) {
+        mutableStateOf(ApkConfig.autoGeneratePackage(username, appName))
     }
     var versionName by remember { mutableStateOf("1.0") }
     var versionCode by remember { mutableStateOf(1) }
     var entryFile by remember { mutableStateOf("index.html") }
-    var internetAccess by remember { mutableStateOf(true) }
+    var internetMode by remember { mutableStateOf(InternetAccessMode.OFFLINE_ONLY) }
     var showStartupScreen by remember { mutableStateOf(true) }
-    var selectedIcon by remember { mutableStateOf("Default Web Icon") }
+    var startupType by remember { mutableStateOf(StartupType.USERNAME) }
+    var startupDuration by remember { mutableStateOf(2) }
+    var startupBg by remember { mutableStateOf("#0F172A") }
+    var orientation by remember { mutableStateOf(ScreenOrientation.LANDSCAPE) }
+    var displayMode by remember { mutableStateOf(DisplayMode.FULLSCREEN) }
+    var iconMode by remember { mutableStateOf(IconMode.GENERATED) }
+    var profile by remember { mutableStateOf(ApkBuildProfile.RELEASE) }
+    var externalLinkBehavior by remember { mutableStateOf(ExternalLinkBehavior.OPEN_BROWSER) }
+    var backButtonBehavior by remember { mutableStateOf(BackButtonBehavior.BROWSER_HISTORY) }
+    var webRuntime by remember { mutableStateOf(WebRuntimeConfig()) }
+
+    // Preset save/load modal
+    var showSavePresetDialog by remember { mutableStateOf(false) }
+    var presetNameInput by remember { mutableStateOf("") }
+    var savedPresets by remember {
+        mutableStateOf(
+            listOf(
+                ApkPreset(name = "Arcade Game Preset", appName = "My HTML Game", packageName = "com.developer.game", username = "Developer"),
+                ApkPreset(name = "Offline Tool Preset", appName = "My Offline App", packageName = "com.developer.app", username = "Developer")
+            )
+        )
+    }
 
     // Analysis caches
     var resourceAnalysis by remember(activeFiles) { mutableStateOf<ResourceAnalysisResult?>(null) }
     var compatAnalysis by remember(activeFiles) { mutableStateOf<CompatibilityAnalysisResult?>(null) }
-    var projectCheck by remember(activeFiles) { mutableStateOf<ProjectErrorCheckResult?>(null) }
+    var projectCheck by remember(activeFiles, entryFile) { mutableStateOf<ProjectErrorCheckResult?>(null) }
 
-    // Re-run analyses when files change or project is chosen
     LaunchedEffect(activeFiles, entryFile) {
         if (activeFiles.isNotEmpty()) {
             resourceAnalysis = ProjectAnalyzer.analyzeResources(activeFiles)
@@ -137,9 +172,12 @@ fun ApkBuilderScreen(
         }
     }
 
-    // Auto-advance or sync step with progress
     LaunchedEffect(buildProgress.step) {
-        if (buildProgress.step == ApkBuildStep.PACKAGING || buildProgress.step == ApkBuildStep.VERIFYING || buildProgress.step == ApkBuildStep.READY || buildProgress.step == ApkBuildStep.FAILED) {
+        if (buildProgress.step == ApkBuildStep.PACKAGING ||
+            buildProgress.step == ApkBuildStep.VERIFYING ||
+            buildProgress.step == ApkBuildStep.READY ||
+            buildProgress.step == ApkBuildStep.FAILED
+        ) {
             currentStep = buildProgress.step
         }
     }
@@ -154,19 +192,19 @@ fun ApkBuilderScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.testTag("apk_builder_back_btn")) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
-                Spacer(Modifier.width(8.dp))
-                Column {
+                Spacer(Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Android, null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "HTML → APK Builder",
+                            text = "HTML → APK Configuration",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -176,6 +214,20 @@ fun ApkBuilderScreen(
                         text = "Lightweight offline Android WebView packager",
                         fontSize = 11.sp,
                         color = Color(0xFF94A3B8)
+                    )
+                }
+
+                // Profile Badge
+                Surface(
+                    color = if (profile == ApkBuildProfile.RELEASE) Color(0xFF047857) else Color(0xFFB45309),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = profile.displayName,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -189,7 +241,7 @@ fun ApkBuilderScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             when (currentStep) {
                 ApkBuildStep.SELECT_PROJECT -> {
@@ -199,8 +251,7 @@ fun ApkBuilderScreen(
                         onSelectProject = {
                             onSelectProject(it)
                             appName = it.name
-                            val safe = it.name.lowercase().replace("[^a-z0-9]".toRegex(), "").ifEmpty { "webapp" }
-                            packageName = "com.htmllive.$safe"
+                            packageName = ApkConfig.autoGeneratePackage(username, it.name)
                         },
                         onContinue = { currentStep = ApkBuildStep.CHECK_PROJECT }
                     )
@@ -216,13 +267,14 @@ fun ApkBuilderScreen(
                 }
 
                 ApkBuildStep.SETTINGS -> {
-                    ApkSettingsStep(
-                        projectName = activeProject?.name ?: "My Project",
+                    ApkConfigurationStep(
+                        projectName = activeProject?.name ?: "My HTML Game",
                         files = activeFiles,
                         appName = appName,
                         onAppNameChange = { appName = it },
                         packageName = packageName,
                         onPackageNameChange = { packageName = it },
+                        onAutoGeneratePackage = { packageName = ApkConfig.autoGeneratePackage(username, appName) },
                         versionName = versionName,
                         onVersionNameChange = { versionName = it },
                         versionCode = versionCode,
@@ -234,12 +286,38 @@ fun ApkBuilderScreen(
                         },
                         entryFile = entryFile,
                         onEntryFileChange = { entryFile = it },
-                        internetAccess = internetAccess,
-                        onInternetAccessChange = { internetAccess = it },
+                        internetMode = internetMode,
+                        onInternetModeChange = { internetMode = it },
                         showStartupScreen = showStartupScreen,
                         onShowStartupScreenChange = { showStartupScreen = it },
-                        selectedIcon = selectedIcon,
-                        onSelectIcon = { selectedIcon = it },
+                        startupType = startupType,
+                        onStartupTypeChange = { startupType = it },
+                        startupDuration = startupDuration,
+                        onStartupDurationChange = { startupDuration = it },
+                        startupBg = startupBg,
+                        onStartupBgChange = { startupBg = it },
+                        orientation = orientation,
+                        onOrientationChange = { orientation = it },
+                        displayMode = displayMode,
+                        onDisplayModeChange = { displayMode = it },
+                        iconMode = iconMode,
+                        onIconModeChange = { iconMode = it },
+                        profile = profile,
+                        onProfileChange = { profile = it },
+                        externalLinkBehavior = externalLinkBehavior,
+                        onExternalLinkBehaviorChange = { externalLinkBehavior = it },
+                        backButtonBehavior = backButtonBehavior,
+                        onBackButtonBehaviorChange = { backButtonBehavior = it },
+                        webRuntime = webRuntime,
+                        onWebRuntimeChange = { webRuntime = it },
+                        onSavePreset = { showSavePresetDialog = true },
+                        savedPresets = savedPresets,
+                        onLoadPreset = { preset ->
+                            appName = preset.appName
+                            packageName = preset.packageName
+                            username = preset.username
+                            entryFile = preset.entryFile
+                        },
                         onBack = { currentStep = ApkBuildStep.CHECK_PROJECT },
                         onContinue = { currentStep = ApkBuildStep.RESOURCE_CHECK }
                     )
@@ -256,9 +334,27 @@ fun ApkBuilderScreen(
                 ApkBuildStep.COMPATIBILITY_CHECK -> {
                     CompatibilityCheckStep(
                         analysis = compatAnalysis,
-                        internetAccess = internetAccess,
+                        internetMode = internetMode,
                         onBack = { currentStep = ApkBuildStep.RESOURCE_CHECK },
-                        onStartBuild = {
+                        onContinue = { currentStep = ApkBuildStep.PREVIEW }
+                    )
+                }
+
+                ApkBuildStep.PREVIEW -> {
+                    BuildPreviewStep(
+                        appName = appName,
+                        packageName = packageName,
+                        username = username,
+                        versionName = versionName,
+                        versionCode = versionCode,
+                        entryFile = entryFile,
+                        internetMode = internetMode,
+                        orientation = orientation,
+                        displayMode = displayMode,
+                        iconMode = iconMode,
+                        resourceAnalysis = resourceAnalysis,
+                        onBackToEdit = { currentStep = ApkBuildStep.SETTINGS },
+                        onBuildApk = {
                             val config = ApkConfig(
                                 projectId = activeProject?.id ?: "project",
                                 appName = appName.trim(),
@@ -267,9 +363,19 @@ fun ApkBuilderScreen(
                                 versionCode = versionCode,
                                 username = username.trim(),
                                 entryFile = entryFile.trim(),
-                                internetAccess = internetAccess,
+                                internetAccess = internetMode != InternetAccessMode.OFFLINE_ONLY,
+                                internetMode = internetMode,
                                 showStartupScreen = showStartupScreen,
-                                customIconName = selectedIcon
+                                startupType = startupType,
+                                startupDurationSeconds = startupDuration,
+                                startupBackgroundColor = startupBg,
+                                orientation = orientation,
+                                displayMode = displayMode,
+                                iconMode = iconMode,
+                                profile = profile,
+                                externalLinkBehavior = externalLinkBehavior,
+                                backButtonBehavior = backButtonBehavior,
+                                webRuntime = webRuntime
                             )
                             onBuildApk(config)
                         }
@@ -289,26 +395,147 @@ fun ApkBuilderScreen(
                         onPreview = {
                             if (activeProject != null) onOpenProjectPreview(activeProject)
                         },
-                        onBuildAnother = { currentStep = ApkBuildStep.SELECT_PROJECT }
+                        onBuildAnother = { currentStep = ApkBuildStep.SELECT_PROJECT },
+                        onEditConfig = { currentStep = ApkBuildStep.SETTINGS }
                     )
                 }
 
                 ApkBuildStep.FAILED -> {
                     BuildFailedStep(
-                        error = buildProgress.error ?: validationResult?.errorMessage ?: "Unknown error",
+                        error = buildProgress.error ?: validationResult?.errorMessage ?: "Build verification failed.",
                         onRetry = { currentStep = ApkBuildStep.SETTINGS }
                     )
                 }
             }
         }
     }
+
+    if (showSavePresetDialog) {
+        AlertDialog(
+            onDismissRequest = { showSavePresetDialog = false },
+            title = { Text("Save APK Preset", color = Color.White) },
+            text = {
+                Column {
+                    Text("Save this configuration as a reusable preset:", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = presetNameInput,
+                        onValueChange = { presetNameInput = it },
+                        label = { Text("Preset Name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (presetNameInput.isNotBlank()) {
+                            savedPresets = savedPresets + ApkPreset(
+                                name = presetNameInput.trim(),
+                                appName = appName,
+                                packageName = packageName,
+                                username = username,
+                                entryFile = entryFile
+                            )
+                            showSavePresetDialog = false
+                            presetNameInput = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSavePresetDialog = false }) {
+                    Text("Cancel", color = Color(0xFF94A3B8))
+                }
+            },
+            containerColor = Color(0xFF1E293B)
+        )
+    }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 1: Select Project
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun SelectProjectStep(
+fun StepProgressRow(currentStep: ApkBuildStep) {
+    val steps = listOf(
+        ApkBuildStep.SELECT_PROJECT,
+        ApkBuildStep.CHECK_PROJECT,
+        ApkBuildStep.SETTINGS,
+        ApkBuildStep.RESOURCE_CHECK,
+        ApkBuildStep.COMPATIBILITY_CHECK,
+        ApkBuildStep.PREVIEW,
+        ApkBuildStep.PACKAGING,
+        ApkBuildStep.READY
+    )
+
+    Surface(color = Color(0xFF162032), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            steps.forEachIndexed { index, step ->
+                val isCompleted = currentStep.ordinal > step.ordinal || currentStep == ApkBuildStep.READY
+                val isCurrent = currentStep == step ||
+                    (step == ApkBuildStep.PACKAGING && (currentStep == ApkBuildStep.PACKAGING || currentStep == ApkBuildStep.VERIFYING))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    isCompleted -> Color(0xFF10B981)
+                                    isCurrent -> Color(0xFF3B82F6)
+                                    else -> Color(0xFF334155)
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isCompleted) {
+                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        } else {
+                            Text(
+                                text = "${step.stepNumber}",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = step.title,
+                        color = if (isCurrent) Color.White else Color(0xFF64748B),
+                        fontSize = 11.sp,
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                    )
+                    if (index < steps.size - 1) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(12.dp)
+                                .height(1.dp)
+                                .background(Color(0xFF334155))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SelectProjectStep(
     projects: List<Project>,
     activeProject: Project?,
     onSelectProject: (Project) -> Unit,
@@ -317,100 +544,93 @@ private fun SelectProjectStep(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Step 1 of 8: Select Project to Package", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    text = "Choose the HTML/CSS/JavaScript website or game you want to compile into a lightweight Android APK.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-            }
-        }
-
-        Text("Your Projects (${projects.size})", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+        Text("1. Select Project to Package", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Choose the HTML5 website or game to convert into an installable Android APK.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(12.dp))
 
         if (projects.isEmpty()) {
-            Surface(
-                color = Color(0xFF1E293B),
-                shape = RoundedCornerShape(8.dp),
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Folder, null, tint = Color(0xFF64748B), modifier = Modifier.size(36.dp))
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Folder, null, tint = Color(0xFF94A3B8), modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text("No projects found", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Create a project or clone a repository first.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                    Text("No projects found in HTML Live workspace.", color = Color.White, fontSize = 14.sp)
                 }
             }
         } else {
-            projects.forEach { proj ->
-                val isSelected = activeProject?.id == proj.id
-                Surface(
-                    onClick = { onSelectProject(proj) },
-                    color = if (isSelected) Color(0xFF0369A1) else Color(0xFF1E293B),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("select_project_${proj.id}")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(340.dp)
+            ) {
+                items(projects) { proj ->
+                    val isSelected = proj.id == activeProject?.id
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) Color(0xFF1E3A5F) else Color(0xFF1E293B)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { onSelectProject(proj) }
+                            .testTag("select_project_${proj.id}"),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = if (isSelected) Color.White else Color(0xFF38BDF8),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(proj.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                                Text(proj.type.name, fontSize = 11.sp, color = if (isSelected) Color(0xFFBAE6FD) else Color(0xFF94A3B8))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFF10B981) else Color(0xFF334155)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Code, null, tint = Color.White, modifier = Modifier.size(20.dp))
                             }
-                        }
-
-                        if (isSelected) {
-                            Text("SELECTED", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(proj.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    text = "Type: ${proj.type.name} • Entry: ${proj.lastOpenedFile}",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-
+        Spacer(Modifier.height(16.dp))
         Button(
             onClick = onContinue,
             enabled = activeProject != null,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
-                .testTag("apk_step1_continue_btn")
+                .testTag("continue_to_check_btn")
         ) {
-            Text("Continue to Project Check", fontWeight = FontWeight.Bold)
+            Text("Continue to Project Check")
             Spacer(Modifier.width(6.dp))
             Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
         }
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 2: Check Project
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun CheckProjectStep(
+fun CheckProjectStep(
     activeProject: Project?,
     projectCheck: ProjectErrorCheckResult?,
     onBack: () -> Unit,
@@ -419,149 +639,123 @@ private fun CheckProjectStep(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Step 2 of 8: Project Pre-Check", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    text = "Verifying structure and entry points for '${activeProject?.name}'.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-            }
-        }
+        Text("2. Pre-Build Project Validation", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Verifying project structure, relative links, HTML/CSS/JS syntax, and assets.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(12.dp))
 
         if (projectCheck != null) {
+            val canPackage = projectCheck.canPackage
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(
+                    containerColor = if (canPackage) Color(0xFF064E3B) else Color(0xFF7F1D1D)
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Project Check Results", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-
-                    CheckResultRow(
-                        isSuccess = projectCheck.hasEntryFile,
-                        title = "Entry file '${projectCheck.entryFileName}' found",
-                        failMessage = "Missing '${projectCheck.entryFileName}'. Android WebView requires a main HTML entry file."
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (canPackage) Icons.Default.CheckCircle else Icons.Default.Error,
+                        null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
-
-                    CheckResultRow(
-                        isSuccess = projectCheck.cssValid,
-                        title = "CSS stylesheets verified",
-                        failMessage = "No CSS file found."
-                    )
-
-                    CheckResultRow(
-                        isSuccess = projectCheck.jsValid,
-                        title = "JavaScript scripts verified",
-                        failMessage = "No JS file found."
-                    )
-
-                    CheckResultRow(
-                        isSuccess = projectCheck.localAssetsFound,
-                        title = "Local bundled assets detected",
-                        failMessage = "Single file project."
-                    )
-
-                    if (projectCheck.externalResourcesFound) {
-                        Surface(
-                            color = Color(0xFF451A03),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Warning, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text("⚠ External resources detected", fontWeight = FontWeight.Bold, color = Color(0xFFFDE68A), fontSize = 12.sp)
-                                    Text("Found ${projectCheck.externalUrls.size} remote URLs. Ensure Internet Access is ON in APK settings.", fontSize = 11.sp, color = Color(0xFFFEF3C7))
-                                }
-                            }
-                        }
-                    } else {
-                        CheckResultRow(
-                            isSuccess = true,
-                            title = "✓ 100% Offline Capable (No external resources required)",
-                            failMessage = ""
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = if (canPackage) "Build can continue" else "Build blocked",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = if (canPackage) "Project passes essential structural requirements for WebView."
+                            else (projectCheck.fatalMessage ?: "Project has fatal structural problems."),
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 12.sp
                         )
                     }
+                }
+            }
 
-                    if (projectCheck.missingFiles.isNotEmpty()) {
-                        Surface(
-                            color = Color(0xFF450A0A),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text("⚠ Potential Broken References:", color = Color(0xFFFCA5A5), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                projectCheck.missingFiles.forEach {
-                                    Text("• $it", color = Color(0xFFFECACA), fontSize = 11.sp)
-                                }
-                            }
+            Spacer(Modifier.height(12.dp))
+
+            // Verification checklist
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    CheckItemRow("Entry HTML file exists", projectCheck.hasEntryFile, projectCheck.entryFileName)
+                    CheckItemRow("CSS syntax check", projectCheck.cssValid, "Stylesheets loaded")
+                    CheckItemRow("JavaScript syntax check", projectCheck.jsValid, "Scripts verified")
+                    CheckItemRow("Local Assets bundled", projectCheck.localAssetsFound, "Images & resources")
+                    CheckItemRow("Offline self-contained", !projectCheck.externalResourcesFound, if (projectCheck.externalResourcesFound) "${projectCheck.externalUrls.size} external URLs" else "Zero external dependencies")
+                }
+            }
+
+            if (projectCheck.missingFiles.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF451A03)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Missing Local Assets Referenced:", color = Color(0xFFFDBA74), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        projectCheck.missingFiles.forEach {
+                            Text("• $it", color = Color.White, fontSize = 11.sp)
                         }
-                    } else {
-                        CheckResultRow(
-                            isSuccess = true,
-                            title = "✓ No obvious missing files or broken references",
-                            failMessage = ""
-                        )
                     }
                 }
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(46.dp)) {
-                Text("Back", color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                Text("Back", color = Color.White)
             }
+            Spacer(Modifier.width(10.dp))
             Button(
                 onClick = onContinue,
                 enabled = projectCheck?.canPackage == true,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_step2_continue_btn")
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier.weight(1.5f)
             ) {
-                Text("Continue to Settings", fontWeight = FontWeight.Bold)
+                Text("Configure APK")
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
             }
         }
     }
 }
 
 @Composable
-private fun CheckResultRow(isSuccess: Boolean, title: String, failMessage: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+fun CheckItemRow(title: String, passed: Boolean, details: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Icon(
-            imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-            contentDescription = null,
-            tint = if (isSuccess) Color(0xFF10B981) else Color(0xFFEF4444),
+            if (passed) Icons.Default.CheckCircle else Icons.Default.Warning,
+            null,
+            tint = if (passed) Color(0xFF10B981) else Color(0xFFF59E0B),
             modifier = Modifier.size(16.dp)
         )
         Spacer(Modifier.width(8.dp))
-        Text(
-            text = if (isSuccess) title else failMessage,
-            color = if (isSuccess) Color(0xFFE2E8F0) else Color(0xFFFCA5A5),
-            fontSize = 12.sp
-        )
+        Text(title, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(details, color = Color(0xFF94A3B8), fontSize = 11.sp)
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 3: APK Settings & Username
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun ApkSettingsStep(
+fun ApkConfigurationStep(
     projectName: String,
     files: List<ProjectFile>,
     appName: String,
     onAppNameChange: (String) -> Unit,
     packageName: String,
     onPackageNameChange: (String) -> Unit,
+    onAutoGeneratePackage: () -> Unit,
     versionName: String,
     onVersionNameChange: (String) -> Unit,
     versionCode: Int,
@@ -570,266 +764,431 @@ private fun ApkSettingsStep(
     onUsernameChange: (String) -> Unit,
     entryFile: String,
     onEntryFileChange: (String) -> Unit,
-    internetAccess: Boolean,
-    onInternetAccessChange: (Boolean) -> Unit,
+    internetMode: InternetAccessMode,
+    onInternetModeChange: (InternetAccessMode) -> Unit,
     showStartupScreen: Boolean,
     onShowStartupScreenChange: (Boolean) -> Unit,
-    selectedIcon: String,
-    onSelectIcon: (String) -> Unit,
+    startupType: StartupType,
+    onStartupTypeChange: (StartupType) -> Unit,
+    startupDuration: Int,
+    onStartupDurationChange: (Int) -> Unit,
+    startupBg: String,
+    onStartupBgChange: (String) -> Unit,
+    orientation: ScreenOrientation,
+    onOrientationChange: (ScreenOrientation) -> Unit,
+    displayMode: DisplayMode,
+    onDisplayModeChange: (DisplayMode) -> Unit,
+    iconMode: IconMode,
+    onIconModeChange: (IconMode) -> Unit,
+    profile: ApkBuildProfile,
+    onProfileChange: (ApkBuildProfile) -> Unit,
+    externalLinkBehavior: ExternalLinkBehavior,
+    onExternalLinkBehaviorChange: (ExternalLinkBehavior) -> Unit,
+    backButtonBehavior: BackButtonBehavior,
+    onBackButtonBehaviorChange: (BackButtonBehavior) -> Unit,
+    webRuntime: WebRuntimeConfig,
+    onWebRuntimeChange: (WebRuntimeConfig) -> Unit,
+    onSavePreset: () -> Unit,
+    savedPresets: List<ApkPreset>,
+    onLoadPreset: (ApkPreset) -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
-    var packageError by remember { mutableStateOf<String?>(null) }
-
-    val htmlFiles = files.filter { it.extension.equals("html", ignoreCase = true) || it.extension.equals("htm", ignoreCase = true) }
+    val packageError = remember(packageName) { ApkConfig.validatePackageName(packageName) }
+    val appNameError = remember(appName) { if (appName.isBlank()) "App name cannot be blank." else null }
+    val htmlFiles = remember(files) { files.filter { it.extension in listOf("html", "htm") }.map { it.name } }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Step 3 of 8: APK Configuration", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    text = "Configure app identity, startup screen, and runtime permissions.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("3. Real APK Customization", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Customize branding, metadata, runtime behavior, and permissions.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+            }
+            OutlinedButton(onClick = onSavePreset) {
+                Icon(Icons.Default.Save, null, modifier = Modifier.size(14.dp), tint = Color(0xFF10B981))
+                Spacer(Modifier.width(4.dp))
+                Text("Save Preset", fontSize = 11.sp, color = Color.White)
             }
         }
 
-        // Username Card (Requirement 9)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Developer Username", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+
+        // Preset selector bar
+        if (savedPresets.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                savedPresets.forEach { p ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onLoadPreset(p) },
+                        label = { Text(p.name, fontSize = 11.sp) },
+                        leadingIcon = { Icon(Icons.Default.Bookmark, null, modifier = Modifier.size(12.dp)) },
+                        colors = FilterChipDefaults.filterChipColors(labelColor = Color.White)
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Section 1: Creator & App Identity
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("CREATOR & APP IDENTITY", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                // Creator / Username
                 OutlinedTextField(
                     value = username,
                     onValueChange = onUsernameChange,
-                    placeholder = { Text("e.g. Atp") },
+                    label = { Text("Creator / Username (e.g. Atp)") },
+                    supportingText = { Text("Exposed safely to JS via window.HTMLLive.username and startup splash", color = Color(0xFF94A3B8)) },
                     singleLine = true,
-                    colors = darkTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth().testTag("apk_username_input")
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    text = "Saved locally. Displayed on the optional HTML Live startup screen.",
-                    fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
+
+                Spacer(Modifier.height(8.dp))
+
+                // App Name
+                OutlinedTextField(
+                    value = appName,
+                    onValueChange = onAppNameChange,
+                    label = { Text("App Name (e.g. My HTML Game)") },
+                    isError = appNameError != null,
+                    supportingText = { if (appNameError != null) Text(appNameError, color = Color(0xFFEF4444)) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(Modifier.height(8.dp))
+
+                // Package Name
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = packageName,
+                        onValueChange = onPackageNameChange,
+                        label = { Text("Package Name (e.g. com.atp.mygame)") },
+                        isError = packageError != null,
+                        supportingText = {
+                            if (packageError != null) {
+                                Text(packageError, color = Color(0xFFEF4444), fontSize = 11.sp)
+                            } else {
+                                Text("Valid Android package format", color = Color(0xFF10B981), fontSize = 11.sp)
+                            }
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(onClick = onAutoGeneratePackage) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Auto Generate", tint = Color(0xFF10B981))
+                    }
+                }
             }
         }
 
-        // App & Package Name Card (Requirement 10)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("App Identity", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
 
-                Column {
-                    Text("App Name", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
+        // Section 2: Versioning & Profile
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("VERSION & BUILD PROFILE", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                Row(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
-                        value = appName,
-                        onValueChange = onAppNameChange,
+                        value = versionName,
+                        onValueChange = onVersionNameChange,
+                        label = { Text("Version Name") },
                         singleLine = true,
-                        colors = darkTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().testTag("apk_app_name_input")
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = versionCode.toString(),
+                        onValueChange = { onVersionCodeChange(it.toIntOrNull() ?: versionCode) },
+                        label = { Text("Version Code") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                        modifier = Modifier.weight(1f)
                     )
                 }
 
-                Column {
-                    Text("Package Name", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(
-                        value = packageName,
-                        onValueChange = {
-                            onPackageNameChange(it)
-                            packageError = null
-                        },
-                        singleLine = true,
-                        isError = packageError != null,
-                        colors = darkTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth().testTag("apk_package_name_input")
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    onClick = { onVersionCodeChange(versionCode + 1) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Increment Version Code (${versionCode + 1})", fontSize = 12.sp)
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Build Profile:", color = Color.White, fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    ApkBuildProfile.values().forEach { p ->
+                        FilterChip(
+                            selected = profile == p,
+                            onClick = { onProfileChange(p) },
+                            label = { Text(p.displayName, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF10B981),
+                                labelColor = Color.White
+                            ),
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Section 3: App Icon
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("APP ICON", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Actual live icon preview
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF10B981)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = appName.trim().firstOrNull()?.uppercase() ?: "A",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Active Icon Preview", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(iconMode.displayName, color = Color(0xFF94A3B8), fontSize = 11.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    IconMode.values().forEach { mode ->
+                        FilterChip(
+                            selected = iconMode == mode,
+                            onClick = { onIconModeChange(mode) },
+                            label = { Text(mode.displayName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF10B981),
+                                labelColor = Color.White
+                            ),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Section 4: Startup Screen & Splash
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("STARTUP & SPLASH SCREEN", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Show username on startup", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Displays 'HTML Live / Welcome, $username'", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = showStartupScreen,
+                        onCheckedChange = onShowStartupScreenChange,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF10B981))
                     )
-                    if (packageError != null) {
-                        Text(packageError!!, color = Color(0xFFEF4444), fontSize = 11.sp)
-                    } else {
-                        Text("e.g. com.example.mygame (must have at least 2 segments)", fontSize = 10.sp, color = Color(0xFF64748B))
+                }
+
+                if (showStartupScreen) {
+                    Spacer(Modifier.height(8.dp))
+                    // Duration selector
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Duration:", color = Color.White, fontSize = 12.sp)
+                        Spacer(Modifier.width(8.dp))
+                        listOf(1, 2, 3, 5).forEach { sec ->
+                            FilterChip(
+                                selected = startupDuration == sec,
+                                onClick = { onStartupDurationChange(sec) },
+                                label = { Text("${sec}s", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF10B981),
+                                    labelColor = Color.White
+                                ),
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    // Startup preview box
+                    Surface(
+                        color = Color(0xFF0F172A),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("HTML Live", color = Color(0xFF10B981), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                            Text("Welcome, $username", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("$appName • v$versionName", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Section 5: Orientation, Display & Web Runtime
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("ORIENTATION & DISPLAY MODE", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                Text("Screen Orientation:", color = Color.White, fontSize = 12.sp)
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    ScreenOrientation.values().forEach { o ->
+                        FilterChip(
+                            selected = orientation == o,
+                            onClick = { onOrientationChange(o) },
+                            label = { Text(o.displayName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF10B981), labelColor = Color.White),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
                     }
                 }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Version Name", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
-                        OutlinedTextField(
-                            value = versionName,
-                            onValueChange = onVersionNameChange,
-                            singleLine = true,
-                            colors = darkTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Version Code", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
-                        OutlinedTextField(
-                            value = versionCode.toString(),
-                            onValueChange = {
-                                val n = it.toIntOrNull()
-                                if (n != null && n > 0) onVersionCodeChange(n)
-                            },
-                            singleLine = true,
-                            colors = darkTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth()
+                Spacer(Modifier.height(8.dp))
+                Text("Display Mode (Immersive for Games):", color = Color.White, fontSize = 12.sp)
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    DisplayMode.values().forEach { d ->
+                        FilterChip(
+                            selected = displayMode == d,
+                            onClick = { onDisplayModeChange(d) },
+                            label = { Text(d.displayName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF10B981), labelColor = Color.White),
+                            modifier = Modifier.padding(end = 4.dp)
                         )
                     }
                 }
 
-                Column {
-                    Text("Main Entry File", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text("Startup HTML File:", color = Color.White, fontSize = 12.sp)
+                if (htmlFiles.isNotEmpty()) {
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        htmlFiles.forEach { file ->
+                            FilterChip(
+                                selected = entryFile == file,
+                                onClick = { onEntryFileChange(file) },
+                                label = { Text(file, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF10B981), labelColor = Color.White),
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
+                    }
+                } else {
                     OutlinedTextField(
                         value = entryFile,
                         onValueChange = onEntryFileChange,
                         singleLine = true,
-                        colors = darkTextFieldColors(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
         }
 
-        // Toggles Card (Requirement 7, 9, 10)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Runtime Features", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
 
-                // Internet Access Toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Internet Access", fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
-                        Text(
-                            if (internetAccess) "ON: Allows project to fetch remote APIs and online assets."
-                            else "OFF: Pure offline mode. Blocks all external network calls.",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+        // Section 6: Permissions & Runtime Navigation
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("INTERNET & PERMISSIONS", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+
+                Text("Internet Access:", color = Color.White, fontSize = 12.sp)
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    InternetAccessMode.values().forEach { mode ->
+                        FilterChip(
+                            selected = internetMode == mode,
+                            onClick = { onInternetModeChange(mode) },
+                            label = { Text(mode.displayName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF10B981), labelColor = Color.White),
+                            modifier = Modifier.padding(end = 4.dp)
                         )
                     }
-                    Switch(
-                        checked = internetAccess,
-                        onCheckedChange = onInternetAccessChange,
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8), checkedTrackColor = Color(0xFF0369A1))
-                    )
                 }
 
-                Divider(color = Color(0xFF334155))
-
-                // Startup Screen Toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("HTML Live Startup Screen", fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
-                        Text(
-                            if (showStartupScreen) "ON: Shows 'HTML LIVE / Welcome, $username / [START]' splash before website."
-                            else "OFF: Launches bundled website directly without splash.",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                Spacer(Modifier.height(8.dp))
+                Text("Back Button Behavior:", color = Color.White, fontSize = 12.sp)
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    BackButtonBehavior.values().forEach { b ->
+                        FilterChip(
+                            selected = backButtonBehavior == b,
+                            onClick = { onBackButtonBehaviorChange(b) },
+                            label = { Text(b.displayName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF10B981), labelColor = Color.White),
+                            modifier = Modifier.padding(end = 4.dp)
                         )
-                    }
-                    Switch(
-                        checked = showStartupScreen,
-                        onCheckedChange = onShowStartupScreenChange,
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8), checkedTrackColor = Color(0xFF0369A1))
-                    )
-                }
-            }
-        }
-
-        // Icon Selection Card (Requirement 11)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("App Launcher Icon", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF0F172A))
-                            .border(1.dp, Color(0xFF38BDF8), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PhoneAndroid, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(28.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("HTML Live Adaptive Icon", fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
-                        Text("High-resolution vector adaptive launcher icon bundled.", fontSize = 11.sp, color = Color(0xFF94A3B8))
                     }
                 }
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(46.dp)) {
-                Text("Back", color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(16.dp))
+
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                Text("Back", color = Color.White)
             }
+            Spacer(Modifier.width(10.dp))
             Button(
-                onClick = {
-                    val config = ApkConfig(
-                        projectId = "temp",
-                        appName = appName,
-                        packageName = packageName,
-                        versionName = versionName,
-                        versionCode = versionCode,
-                        username = username,
-                        entryFile = entryFile,
-                        internetAccess = internetAccess,
-                        showStartupScreen = showStartupScreen
-                    )
-                    val err = config.validate()
-                    if (err != null) {
-                        packageError = err
-                    } else {
-                        onContinue()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_step3_continue_btn")
+                onClick = onContinue,
+                enabled = packageError == null && appNameError == null,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier.weight(1.5f)
             ) {
-                Text("Continue to Resource Check", fontWeight = FontWeight.Bold)
+                Text("Check Resources")
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
             }
         }
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 4: Resource Analyzer (Requirement 12)
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun ResourceCheckStep(
+fun ResourceCheckStep(
     analysis: ResourceAnalysisResult?,
     onBack: () -> Unit,
     onContinue: () -> Unit
@@ -837,475 +1196,421 @@ private fun ResourceCheckStep(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Step 4 of 8: Project Resource Analyzer", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    text = "Detailed size breakdown of bundled website code and media assets.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-            }
-        }
+        Text("4. Project Size & Asset Breakdown", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Calculated from bundled HTML, CSS, JavaScript, media, and fonts.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(12.dp))
 
         if (analysis != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Project Resources", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-
-                    ResourceSizeRow("HTML:", analysis.formattedHtmlSize, Color(0xFFF97316))
-                    ResourceSizeRow("CSS:", analysis.formattedCssSize, Color(0xFF38BDF8))
-                    ResourceSizeRow("JavaScript:", analysis.formattedJsSize, Color(0xFFFACC15))
-                    ResourceSizeRow("Images:", analysis.formattedImagesSize, Color(0xFF10B981))
-                    ResourceSizeRow("Audio:", analysis.formattedAudioSize, Color(0xFFA855F7))
-                    ResourceSizeRow("Fonts:", analysis.formattedFontsSize, Color(0xFFEC4899))
-
-                    Divider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Project total (${analysis.totalFilesCount} files):", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                        Text(analysis.formattedTotalSize, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8), fontSize = 14.sp)
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Project size:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(analysis.formattedTotalSize, color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
-                }
-            }
+                    Divider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 8.dp))
 
-            // Warnings Section
-            if (analysis.warnings.isNotEmpty()) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Resource Diagnostics (${analysis.warnings.size})", fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B), fontSize = 13.sp)
+                    SizeRow("HTML", analysis.formattedHtmlSize)
+                    SizeRow("CSS", analysis.formattedCssSize)
+                    SizeRow("JavaScript", analysis.formattedJsSize)
+                    SizeRow("Images", analysis.formattedImagesSize)
+                    SizeRow("Audio", analysis.formattedAudioSize)
+                    SizeRow("Other", analysis.formattedOtherSize)
 
-                        analysis.warnings.forEach { w ->
-                            val color = when (w.level) {
-                                WarningLevel.ERROR -> Color(0xFFEF4444)
-                                WarningLevel.WARNING -> Color(0xFFF59E0B)
-                                WarningLevel.INFO -> Color(0xFF38BDF8)
-                            }
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Default.Warning, null, tint = color, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(w.title, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 12.sp)
-                                    Text(w.description, color = Color(0xFFCBD5E1), fontSize = 11.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Surface(
-                    color = Color(0xFF064E3B),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF34D399), modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("All asset sizes within optimal mobile WebView ranges.", color = Color.White, fontSize = 12.sp)
+                    Divider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Expected APK size:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(analysis.formattedEstimatedApkSize, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(46.dp)) {
-                Text("Back", color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                Text("Back", color = Color.White)
             }
+            Spacer(Modifier.width(10.dp))
             Button(
                 onClick = onContinue,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_step4_continue_btn")
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier.weight(1.5f)
             ) {
-                Text("Continue to Compatibility Check", fontWeight = FontWeight.Bold)
+                Text("Compatibility Check")
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
             }
         }
     }
 }
 
 @Composable
-private fun ResourceSizeRow(label: String, value: String, accentColor: Color) {
+fun SizeRow(label: String, formattedSize: String) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(accentColor))
-            Spacer(Modifier.width(8.dp))
-            Text(label, color = Color(0xFFCBD5E1), fontSize = 12.sp)
-        }
-        Text(value, fontFamily = FontFamily.Monospace, color = Color.White, fontSize = 12.sp)
+        Text(label, color = Color(0xFF94A3B8), fontSize = 13.sp)
+        Text(formattedSize, color = Color.White, fontSize = 13.sp)
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 5: Compatibility Check (Requirement 13)
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun CompatibilityCheckStep(
+fun CompatibilityCheckStep(
     analysis: CompatibilityAnalysisResult?,
-    internetAccess: Boolean,
+    internetMode: InternetAccessMode,
     onBack: () -> Unit,
-    onStartBuild: () -> Unit
+    onContinue: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Step 5 of 8: Android WebView Compatibility", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    text = "Verifying web runtime feature compatibility on mobile.",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-            }
-        }
+        Text("5. Compatibility Report", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Feature-by-feature evaluation for Android WebView runtime.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(12.dp))
 
         if (analysis != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Compatibility Matrix", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     analysis.features.forEach { feat ->
-                        val (icon, color) = when (feat.status) {
-                            FeatureStatus.SUPPORTED -> Pair(Icons.Default.CheckCircle, Color(0xFF10B981))
-                            FeatureStatus.WARNING -> Pair(Icons.Default.Warning, Color(0xFFF59E0B))
-                            FeatureStatus.UNSUPPORTED -> Pair(Icons.Default.Error, Color(0xFFEF4444))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(feat.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            val isSupported = feat.status == FeatureStatus.SUPPORTED
+                            Icon(
+                                if (isSupported) Icons.Default.Check else Icons.Default.Warning,
+                                null,
+                                tint = if (isSupported) Color(0xFF10B981) else Color(0xFFF59E0B),
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                            Icon(icon, null, tint = color, modifier = Modifier.size(16.dp).padding(top = 2.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(feat.name, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 13.sp)
-                                Text(feat.details, color = Color(0xFF94A3B8), fontSize = 11.sp, lineHeight = 16.sp)
-                            }
-                        }
+                        Text(feat.details, color = Color(0xFF94A3B8), fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp))
+                        Divider(color = Color(0xFF2D3748))
                     }
                 }
             }
         }
 
-        // Summary banner
-        Surface(
-            color = Color(0xFF0F2744),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.RocketLaunch, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text("Ready for Lightweight Packaging", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                    Text("The reusable WebView template will package and sign this project into a real APK.", fontSize = 11.sp, color = Color(0xFFBAE6FD))
-                }
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                Text("Back", color = Color.White)
             }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).height(46.dp)) {
-                Text("Back", color = Color(0xFF94A3B8))
-            }
+            Spacer(Modifier.width(10.dp))
             Button(
-                onClick = onStartBuild,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_step5_build_btn")
+                onClick = onContinue,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier.weight(1.5f)
             ) {
-                Icon(Icons.Default.Build, null, modifier = Modifier.size(16.dp))
+                Text("Review Preview")
                 Spacer(Modifier.width(6.dp))
-                Text("Package APK", fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
             }
         }
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 6 & 7: Packaging & Verifying Progress
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun PackagingProgressStep(progress: ApkBuildProgress) {
+fun BuildPreviewStep(
+    appName: String,
+    packageName: String,
+    username: String,
+    versionName: String,
+    versionCode: Int,
+    entryFile: String,
+    internetMode: InternetAccessMode,
+    orientation: ScreenOrientation,
+    displayMode: DisplayMode,
+    iconMode: IconMode,
+    resourceAnalysis: ResourceAnalysisResult?,
+    onBackToEdit: () -> Unit,
+    onBuildApk: () -> Unit
+) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text("6. Final Build Preview", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Verify all parameters before packing into an authentic Android APK.", fontSize = 12.sp, color = Color(0xFF94A3B8))
+        Spacer(Modifier.height(12.dp))
+
+        // Center Preview Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFF334155), RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // App Icon
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF10B981)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = appName.trim().firstOrNull()?.uppercase() ?: "A",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 36.sp
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text(appName, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Welcome, $username", color = Color(0xFF10B981), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Version $versionName (Code $versionCode)", color = Color(0xFF94A3B8), fontSize = 12.sp)
+
+                Divider(color = Color(0xFF334155), modifier = Modifier.padding(vertical = 14.dp))
+
+                PreviewMetaRow("Package:", packageName)
+                PreviewMetaRow("Startup:", entryFile)
+                PreviewMetaRow("Internet:", internetMode.displayName)
+                PreviewMetaRow("Orientation:", orientation.displayName)
+                PreviewMetaRow("Display:", displayMode.displayName)
+                PreviewMetaRow("Project size:", resourceAnalysis?.formattedTotalSize ?: "0 B")
+                PreviewMetaRow("Expected APK:", resourceAnalysis?.formattedEstimatedApkSize ?: "~2.5 MB")
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onBackToEdit, modifier = Modifier.weight(1f)) {
+                Text("Back to Edit", color = Color.White)
+            }
+            Spacer(Modifier.width(10.dp))
+            Button(
+                onClick = onBuildApk,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier.weight(1.5f)
+            ) {
+                Icon(Icons.Default.RocketLaunch, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Build APK")
+            }
+        }
+    }
+}
+
+@Composable
+fun PreviewMetaRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        Text(value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun PackagingProgressStep(progress: ApkBuildProgress) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                CircularProgressIndicator(
-                    color = Color(0xFF38BDF8),
-                    modifier = Modifier.size(54.dp),
-                    strokeWidth = 4.dp
-                )
-
-                Text(
-                    text = if (progress.step == ApkBuildStep.VERIFYING) "Verifying Generated APK..." else "Packaging HTML → APK...",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = 17.sp
-                )
-
-                LinearProgressIndicator(
-                    progress = { progress.percentage.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                    color = Color(0xFF38BDF8),
-                    trackColor = Color(0xFF334155)
-                )
-
-                Text(
-                    text = progress.statusMessage,
-                    color = Color(0xFFCBD5E1),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
+        CircularProgressIndicator(
+            progress = { progress.percentage },
+            color = Color(0xFF10B981),
+            strokeWidth = 6.dp,
+            modifier = Modifier.size(72.dp)
+        )
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = progress.statusMessage.ifBlank { "Packaging Android APK..." },
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { progress.percentage },
+            color = Color(0xFF10B981),
+            trackColor = Color(0xFF334155),
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "${(progress.percentage * 100).toInt()}% completed",
+            color = Color(0xFF94A3B8),
+            fontSize = 12.sp
+        )
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step 8: APK Ready (Requirement 21)
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun ApkReadyStep(
+fun ApkReadyStep(
     validation: ApkValidationResult?,
     appName: String,
     onInstall: () -> Unit,
     onShare: () -> Unit,
     onPreview: () -> Unit,
-    onBuildAnother: () -> Unit
+    onBuildAnother: () -> Unit,
+    onEditConfig: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
     ) {
+        // Success Header Card
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF064E3B)),
-            shape = MaterialTheme.shapes.medium,
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF34D399), modifier = Modifier.size(52.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF10B981)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                }
                 Spacer(Modifier.height(10.dp))
-                Text("APK Ready", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 20.sp)
-                Text(
-                    text = validation?.outputFile?.name ?: "${appName}.apk",
-                    fontSize = 13.sp,
-                    color = Color(0xFF6EE7B7),
-                    fontFamily = FontFamily.Monospace
-                )
+                Text("APK Built Successfully!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Real genuine signed APK generated and verified.", color = Color(0xFFD1FAE5), fontSize = 12.sp)
             }
         }
 
-        // Details Card
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = MaterialTheme.shapes.medium,
+        Spacer(Modifier.height(12.dp))
+
+        // 10-Point Verification Checklist
+        if (validation != null && validation.verificationChecks.isNotEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("10-POINT BUILD VERIFICATION", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Spacer(Modifier.height(6.dp))
+                    validation.verificationChecks.forEach { check ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (check.passed) Icons.Default.CheckCircle else Icons.Default.Error,
+                                null,
+                                tint = if (check.passed) Color(0xFF10B981) else Color(0xFFEF4444),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(check.title, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            Text(check.details, color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Action Buttons
+        Button(
+            onClick = onInstall,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Package Summary", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Test APK (Install / Open)")
+        }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("File size:", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Text(validation?.formattedSize ?: "0 B", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+        Spacer(Modifier.height(8.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Internet permission:", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Text(if (validation?.internetEnabled == true) "Enabled" else "Disabled (Offline Only)", color = Color.White, fontSize = 12.sp)
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Local files bundled:", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    Text("${validation?.localFilesCount ?: 0}", color = Color.White, fontSize = 12.sp)
-                }
-
-                Divider(color = Color(0xFF334155))
-
-                Text("Validation Status", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                CheckResultRow(isSuccess = validation?.hasManifest == true, title = "✓ Valid AndroidManifest.xml", failMessage = "Missing manifest")
-                CheckResultRow(isSuccess = validation?.hasClassesDex == true, title = "✓ WebView runtime classes.dex compiled", failMessage = "Missing runtime")
-                CheckResultRow(isSuccess = validation?.hasWebsiteAssets == true, title = "✓ Website bundled in assets/website/", failMessage = "Missing assets")
-                CheckResultRow(isSuccess = validation?.isSigned == true, title = "✓ Signed with cryptographic signature (v1 JAR)", failMessage = "Unsigned")
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp), tint = Color.White)
+                Spacer(Modifier.width(6.dp))
+                Text("Share APK", color = Color.White, fontSize = 12.sp)
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.PhoneAndroid, null, modifier = Modifier.size(16.dp), tint = Color.White)
+                Spacer(Modifier.width(6.dp))
+                Text("Test in Editor", color = Color.White, fontSize = 12.sp)
             }
         }
 
-        // Actions
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = onInstall,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_install_btn")
-            ) {
-                Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Install", fontWeight = FontWeight.Bold)
-            }
+        Spacer(Modifier.height(8.dp))
 
-            Button(
-                onClick = onShare,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                modifier = Modifier.weight(1f).height(46.dp).testTag("apk_share_btn")
-            ) {
-                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Share APK", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f).height(44.dp)) {
-                Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onEditConfig, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Tune, null, modifier = Modifier.size(14.dp), tint = Color(0xFF94A3B8))
                 Spacer(Modifier.width(4.dp))
-                Text("Preview in App", color = Color(0xFF38BDF8))
+                Text("Edit Configuration", color = Color(0xFF94A3B8), fontSize = 12.sp)
             }
-            OutlinedButton(onClick = onBuildAnother, modifier = Modifier.weight(1f).height(44.dp)) {
-                Text("Build Another", color = Color(0xFFCBD5E1))
+            TextButton(onClick = onBuildAnother, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp), tint = Color(0xFF94A3B8))
+                Spacer(Modifier.width(4.dp))
+                Text("Build Another", color = Color(0xFF94A3B8), fontSize = 12.sp)
             }
         }
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Step Failed
-// -------------------------------------------------------------------------------------------------
 @Composable
-private fun BuildFailedStep(error: String, onRetry: () -> Unit) {
+fun BuildFailedStep(
+    error: String,
+    onRetry: () -> Unit
+) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF450A0A)),
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
+        Icon(Icons.Default.Error, null, tint = Color(0xFFEF4444), modifier = Modifier.size(56.dp))
+        Spacer(Modifier.height(14.dp))
+        Text("Build Failed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(Modifier.height(8.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF450A0A)), modifier = Modifier.fillMaxWidth()) {
+            Text(text = error, color = Color(0xFFFCA5A5), fontSize = 13.sp, modifier = Modifier.padding(14.dp))
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Default.Error, null, tint = Color(0xFFEF4444), modifier = Modifier.size(48.dp))
-                Text("APK Creation Failed", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
-                Text(
-                    text = "Reason:\n$error",
-                    color = Color(0xFFFECACA),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = onRetry,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                ) {
-                    Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Return to Settings & Fix")
-                }
-            }
+            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Modify Configuration & Retry")
         }
     }
 }
-
-// -------------------------------------------------------------------------------------------------
-// Stepper Indicator Row
-// -------------------------------------------------------------------------------------------------
-@Composable
-private fun StepProgressRow(currentStep: ApkBuildStep) {
-    val steps = listOf(
-        ApkBuildStep.SELECT_PROJECT to "1. Select",
-        ApkBuildStep.CHECK_PROJECT to "2. Check",
-        ApkBuildStep.SETTINGS to "3. Config",
-        ApkBuildStep.RESOURCE_CHECK to "4. Size",
-        ApkBuildStep.COMPATIBILITY_CHECK to "5. Compat",
-        ApkBuildStep.PACKAGING to "6. Build",
-        ApkBuildStep.READY to "7. Ready"
-    )
-
-    Surface(color = Color(0xFF161F30), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            steps.forEach { (step, label) ->
-                val isCurrent = currentStep == step || (step == ApkBuildStep.PACKAGING && currentStep == ApkBuildStep.VERIFYING)
-                val isPassed = currentStep.stepNumber > step.stepNumber
-
-                Surface(
-                    color = when {
-                        isCurrent -> Color(0xFF0284C7)
-                        isPassed -> Color(0xFF065F46)
-                        else -> Color(0xFF1E293B)
-                    },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = label,
-                        color = when {
-                            isCurrent -> Color.White
-                            isPassed -> Color(0xFF6EE7B7)
-                            else -> Color(0xFF64748B)
-                        },
-                        fontSize = 10.sp,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun darkTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedBorderColor = Color(0xFF38BDF8),
-    unfocusedBorderColor = Color(0xFF334155),
-    focusedContainerColor = Color(0xFF0F172A),
-    unfocusedContainerColor = Color(0xFF0F172A)
-)

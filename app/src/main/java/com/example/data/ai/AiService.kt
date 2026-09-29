@@ -1,148 +1,81 @@
 package com.example.data.ai
 
+import com.example.data.ai.model.AIMessage
+import com.example.data.ai.model.AIRequest
+import com.example.data.ai.model.AIResponse
 import com.example.model.AiChangeProposal
 import com.example.model.AiProvider
 import com.example.model.AiSettings
 import com.example.model.TeachingStep
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class AiService {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
+    val router = AIRouter()
+
+    val lastDebugInfo: StateFlow<com.example.data.ai.model.AIDebugInfo?> = router.lastDebugInfo
 
     // Test connection with current provider & key
     suspend fun testConnection(settings: AiSettings): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = getEffectiveKey(settings)
         if (apiKey.isBlank()) {
-            return@withContext Result.failure(Exception("API Key is missing. Please configure your API key in Settings."))
+            return@withContext Result.failure(Exception("API Key is missing for ${settings.provider.displayName}. Please configure your API key in Settings."))
         }
 
         try {
-            when (settings.provider) {
-                AiProvider.GEMINI -> {
-                    val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey"
-                    val request = Request.Builder().url(url).get().build()
-                    val response = client.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        Result.success("Connection successful! Google Gemini is ready.")
-                    } else {
-                        Result.failure(Exception("Gemini error (${response.code}): ${response.message}"))
-                    }
-                }
-                AiProvider.OPENAI -> {
-                    val url = "https://api.openai.com/v1/models"
-                    val request = Request.Builder()
-                        .url(url)
-                        .addHeader("Authorization", "Bearer $apiKey")
-                        .get()
-                        .build()
-                    val response = client.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        Result.success("Connection successful! OpenAI is ready.")
-                    } else {
-                        Result.failure(Exception("OpenAI error (${response.code}): ${response.message}"))
-                    }
-                }
-                AiProvider.CUSTOM -> {
-                    val endpoint = settings.customEndpoint.ifBlank { "https://api.openai.com/v1/chat/completions" }
-                    Result.success("Custom endpoint configured: $endpoint")
-                }
+            val discoveryResult = router.discoverModels(settings.provider, apiKey)
+            if (discoveryResult.isSuccess) {
+                val models = discoveryResult.getOrThrow()
+                Result.success("Connection successful! ${settings.provider.displayName} is ready. (${models.size} models accessible)")
+            } else {
+                val err = discoveryResult.exceptionOrNull()
+                Result.failure(Exception("${settings.provider.displayName} connection error: ${err?.message}"))
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // Dynamic model discovery
+    // Dynamic model discovery for account-specific models
     suspend fun fetchAvailableModels(settings: AiSettings): List<String> = withContext(Dispatchers.IO) {
         val apiKey = getEffectiveKey(settings)
         if (apiKey.isBlank()) return@withContext getDefaultModels(settings.provider)
 
         try {
-            when (settings.provider) {
-                AiProvider.GEMINI -> {
-                    val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey"
-                    val request = Request.Builder().url(url).get().build()
-                    val response = client.newCall(request).execute()
-                    val body = response.body?.string() ?: return@withContext getDefaultModels(settings.provider)
-                    val json = JSONObject(body)
-                    val modelsArray = json.optJSONArray("models") ?: return@withContext getDefaultModels(settings.provider)
-
-                    val result = mutableListOf<String>()
-                    for (i in 0 until modelsArray.length()) {
-                        val m = modelsArray.getJSONObject(i)
-                        val name = m.getString("name").removePrefix("models/")
-                        val supportedMethods = m.optJSONArray("supportedGenerationMethods")
-                        var canGenerate = false
-                        if (supportedMethods != null) {
-                            for (j in 0 until supportedMethods.length()) {
-                                if (supportedMethods.getString(j) == "generateContent") canGenerate = true
-                            }
-                        }
-                        if (canGenerate && !name.contains("embedding") && !name.contains("aqa")) {
-                            result.add(name)
-                        }
-                    }
-                    if (result.isNotEmpty()) result else getDefaultModels(settings.provider)
-                }
-                AiProvider.OPENAI -> {
-                    val url = "https://api.openai.com/v1/models"
-                    val request = Request.Builder()
-                        .url(url)
-                        .addHeader("Authorization", "Bearer $apiKey")
-                        .get()
-                        .build()
-                    val response = client.newCall(request).execute()
-                    val body = response.body?.string() ?: return@withContext getDefaultModels(settings.provider)
-                    val json = JSONObject(body)
-                    val data = json.optJSONArray("data") ?: return@withContext getDefaultModels(settings.provider)
-
-                    val result = mutableListOf<String>()
-                    for (i in 0 until data.length()) {
-                        val id = data.getJSONObject(i).getString("id")
-                        if (id.startsWith("gpt-") || id.startsWith("o1") || id.startsWith("o3")) {
-                            result.add(id)
-                        }
-                    }
-                    if (result.isNotEmpty()) result.sorted() else getDefaultModels(settings.provider)
-                }
-                AiProvider.CUSTOM -> {
-                    listOf(settings.customModel, "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet")
-                }
+            val discoveryResult = router.discoverModels(settings.provider, apiKey)
+            if (discoveryResult.isSuccess) {
+                val models = discoveryResult.getOrThrow().map { it.id }
+                if (models.isNotEmpty()) models else getDefaultModels(settings.provider)
+            } else {
+                getDefaultModels(settings.provider)
             }
         } catch (e: Exception) {
             getDefaultModels(settings.provider)
         }
     }
 
-    private fun getDefaultModels(provider: AiProvider): List<String> {
+    fun getDefaultModels(provider: AiProvider): List<String> {
         return when (provider) {
-            AiProvider.GEMINI -> listOf("gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash")
-            AiProvider.OPENAI -> listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo")
-            AiProvider.CUSTOM -> listOf("gpt-4o", "gpt-4o-mini")
+            AiProvider.GEMINI -> listOf("gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash")
+            AiProvider.OPENAI -> listOf("gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "gpt-4-turbo")
+            AiProvider.XAI -> listOf("grok-2", "grok-beta")
+            AiProvider.ANTHROPIC -> listOf("claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229")
+            AiProvider.CUSTOM -> listOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet")
         }
     }
 
-    // Main AI completion method
+    // Main AI completion method using internal AIRequest / AIResponse format
     suspend fun generateResponse(
         prompt: String,
         systemPrompt: String = "",
         settings: AiSettings,
-        projectContextFiles: Map<String, String> = emptyMap()
+        projectContextFiles: Map<String, String> = emptyMap(),
+        images: List<String> = emptyList()
     ): Result<AiResponseResult> = withContext(Dispatchers.IO) {
         val apiKey = getEffectiveKey(settings)
         if (apiKey.isBlank()) {
-            return@withContext Result.failure(Exception("API Key not found. Please provide an API key in Settings."))
+            return@withContext Result.failure(Exception("API Key not found for ${settings.provider.displayName}. Please provide an API key in Settings."))
         }
 
         val enrichedSystemPrompt = buildString {
@@ -169,21 +102,38 @@ class AiService {
             append("```javascript:script.js\n// code\n```\n")
         }
 
+        val internalRequest = AIRequest(
+            provider = settings.provider,
+            model = settings.selectedModel,
+            systemInstruction = enrichedSystemPrompt,
+            messages = listOf(
+                AIMessage(
+                    role = "user",
+                    content = prompt,
+                    images = images
+                )
+            ),
+            reasoning = if (settings.enableThinking) settings.reasoningEffort else null,
+            preferNative = settings.preferNativeAdapter,
+            metadata = mapOf("customEndpoint" to settings.customEndpoint)
+        )
+
         try {
-            val responseText = when (settings.provider) {
-                AiProvider.GEMINI -> callGemini(prompt, enrichedSystemPrompt, settings.selectedModel, apiKey)
-                AiProvider.OPENAI -> callOpenAi(prompt, enrichedSystemPrompt, settings.selectedModel, apiKey)
-                AiProvider.CUSTOM -> callCustom(prompt, enrichedSystemPrompt, settings.customEndpoint, settings.customModel, apiKey)
+            val responseResult = router.execute(internalRequest, apiKey)
+            if (responseResult.isFailure) {
+                return@withContext Result.failure(responseResult.exceptionOrNull() ?: Exception("Unknown AI error"))
             }
 
-            val proposal = parseFileChanges(responseText)
-            val teachingSteps = if (settings.mode == "teach_build") parseTeachingSteps(responseText) else null
+            val aiResponse = responseResult.getOrThrow()
+            val proposal = parseFileChanges(aiResponse.text)
+            val teachingSteps = if (settings.mode == "teach_build") parseTeachingSteps(aiResponse.text) else null
 
             Result.success(
                 AiResponseResult(
-                    content = responseText,
+                    content = aiResponse.text,
                     changeProposal = proposal,
-                    teachingSteps = teachingSteps
+                    teachingSteps = teachingSteps,
+                    debugInfo = aiResponse.debugInfo
                 )
             )
         } catch (e: Exception) {
@@ -191,117 +141,7 @@ class AiService {
         }
     }
 
-    private fun callGemini(prompt: String, systemPrompt: String, model: String, apiKey: String): String {
-        val actualModel = if (model.isBlank()) "gemini-2.5-flash" else model
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$actualModel:generateContent?key=$apiKey"
-
-        val rootJson = JSONObject().apply {
-            val contents = JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("parts", JSONArray().apply {
-                        if (systemPrompt.isNotBlank()) {
-                            put(JSONObject().put("text", "System Instructions:\n$systemPrompt\n\nUser Request:\n$prompt"))
-                        } else {
-                            put(JSONObject().put("text", prompt))
-                        }
-                    })
-                })
-            }
-            put("contents", contents)
-        }
-
-        val requestBody = rootJson.toString().toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).post(requestBody).build()
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: throw Exception("Empty response from Gemini")
-
-        if (!response.isSuccessful) {
-            throw Exception("Gemini API error (${response.code}): $body")
-        }
-
-        val json = JSONObject(body)
-        val candidates = json.optJSONArray("candidates") ?: throw Exception("No candidates returned from Gemini")
-        if (candidates.length() == 0) throw Exception("Empty candidates array from Gemini")
-
-        val content = candidates.getJSONObject(0).getJSONObject("content")
-        val parts = content.getJSONArray("parts")
-        val textBuilder = StringBuilder()
-        for (i in 0 until parts.length()) {
-            textBuilder.append(parts.getJSONObject(i).optString("text", ""))
-        }
-        return textBuilder.toString()
-    }
-
-    private fun callOpenAi(prompt: String, systemPrompt: String, model: String, apiKey: String): String {
-        val actualModel = if (model.isBlank()) "gpt-4o" else model
-        val url = "https://api.openai.com/v1/chat/completions"
-
-        val rootJson = JSONObject().apply {
-            put("model", actualModel)
-            val messages = JSONArray().apply {
-                if (systemPrompt.isNotBlank()) {
-                    put(JSONObject().put("role", "system").put("content", systemPrompt))
-                }
-                put(JSONObject().put("role", "user").put("content", prompt))
-            }
-            put("messages", messages)
-        }
-
-        val requestBody = rootJson.toString().toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .post(requestBody)
-            .build()
-
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: throw Exception("Empty response from OpenAI")
-
-        if (!response.isSuccessful) {
-            throw Exception("OpenAI API error (${response.code}): $body")
-        }
-
-        val json = JSONObject(body)
-        val choices = json.getJSONArray("choices")
-        return choices.getJSONObject(0).getJSONObject("message").getString("content")
-    }
-
-    private fun callCustom(prompt: String, systemPrompt: String, endpoint: String, model: String, apiKey: String): String {
-        val url = endpoint.ifBlank { "https://api.openai.com/v1/chat/completions" }
-        val rootJson = JSONObject().apply {
-            put("model", model.ifBlank { "gpt-4o" })
-            val messages = JSONArray().apply {
-                if (systemPrompt.isNotBlank()) {
-                    put(JSONObject().put("role", "system").put("content", systemPrompt))
-                }
-                put(JSONObject().put("role", "user").put("content", prompt))
-            }
-            put("messages", messages)
-        }
-
-        val requestBody = rootJson.toString().toRequestBody("application/json".toMediaType())
-        val builder = Request.Builder().url(url).post(requestBody)
-        if (apiKey.isNotBlank()) {
-            builder.addHeader("Authorization", "Bearer $apiKey")
-        }
-        val response = client.newCall(builder.build()).execute()
-        val body = response.body?.string() ?: throw Exception("Empty response from endpoint")
-
-        if (!response.isSuccessful) {
-            throw Exception("Provider error (${response.code}): $body")
-        }
-
-        val json = JSONObject(body)
-        val choices = json.optJSONArray("choices")
-        return if (choices != null && choices.length() > 0) {
-            choices.getJSONObject(0).getJSONObject("message").getString("content")
-        } else {
-            body
-        }
-    }
-
-    private fun getEffectiveKey(settings: AiSettings): String {
+    fun getEffectiveKey(settings: AiSettings): String {
         return when (settings.provider) {
             AiProvider.GEMINI -> {
                 if (settings.geminiApiKey.isNotBlank()) settings.geminiApiKey
@@ -311,6 +151,8 @@ class AiService {
                 }.getOrDefault("")
             }
             AiProvider.OPENAI -> settings.openAiApiKey
+            AiProvider.XAI -> settings.xaiApiKey
+            AiProvider.ANTHROPIC -> settings.anthropicApiKey
             AiProvider.CUSTOM -> settings.customApiKey
         }
     }
@@ -364,5 +206,6 @@ class AiService {
 data class AiResponseResult(
     val content: String,
     val changeProposal: AiChangeProposal?,
-    val teachingSteps: List<TeachingStep>?
+    val teachingSteps: List<TeachingStep>?,
+    val debugInfo: com.example.data.ai.model.AIDebugInfo? = null
 )

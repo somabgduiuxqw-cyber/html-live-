@@ -2,9 +2,12 @@ package com.example.data.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.data.apk.ApkPreset
 import com.example.model.AiProvider
 import com.example.model.AiSettings
 import com.example.model.EditorSettings
+import org.json.JSONArray
+import org.json.JSONObject
 
 class SecurePreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("htmllive_secure_prefs", Context.MODE_PRIVATE)
@@ -17,12 +20,17 @@ class SecurePreferences(context: Context) {
             provider = provider,
             geminiApiKey = prefs.getString("gemini_api_key", "") ?: "",
             openAiApiKey = prefs.getString("openai_api_key", "") ?: "",
+            xaiApiKey = prefs.getString("xai_api_key", "") ?: "",
+            anthropicApiKey = prefs.getString("anthropic_api_key", "") ?: "",
             customEndpoint = prefs.getString("custom_endpoint", "https://api.openai.com/v1/chat/completions") ?: "",
             customApiKey = prefs.getString("custom_api_key", "") ?: "",
             customModel = prefs.getString("custom_model", "gpt-4o") ?: "gpt-4o",
-            selectedModel = prefs.getString("selected_model", "gemini-2.5-flash") ?: "gemini-2.5-flash",
+            selectedModel = prefs.getString("selected_model", "gemini-3.8-flash") ?: "gemini-3.8-flash",
             mode = prefs.getString("ai_mode", "build_explain") ?: "build_explain",
-            experienceLevel = prefs.getString("user_experience_level", "beginner") ?: "beginner"
+            experienceLevel = prefs.getString("user_experience_level", "beginner") ?: "beginner",
+            preferNativeAdapter = prefs.getBoolean("prefer_native_adapter", true),
+            enableThinking = prefs.getBoolean("enable_thinking", true),
+            reasoningEffort = prefs.getString("reasoning_effort", "medium") ?: "medium"
         )
     }
 
@@ -31,12 +39,17 @@ class SecurePreferences(context: Context) {
             .putString("ai_provider", settings.provider.name)
             .putString("gemini_api_key", settings.geminiApiKey)
             .putString("openai_api_key", settings.openAiApiKey)
+            .putString("xai_api_key", settings.xaiApiKey)
+            .putString("anthropic_api_key", settings.anthropicApiKey)
             .putString("custom_endpoint", settings.customEndpoint)
             .putString("custom_api_key", settings.customApiKey)
             .putString("custom_model", settings.customModel)
             .putString("selected_model", settings.selectedModel)
             .putString("ai_mode", settings.mode)
             .putString("user_experience_level", settings.experienceLevel)
+            .putBoolean("prefer_native_adapter", settings.preferNativeAdapter)
+            .putBoolean("enable_thinking", settings.enableThinking)
+            .putString("reasoning_effort", settings.reasoningEffort)
             .apply()
     }
 
@@ -104,6 +117,73 @@ class SecurePreferences(context: Context) {
 
     fun saveApkUsername(username: String) {
         prefs.edit().putString("apk_builder_username", username).apply()
+    }
+
+    fun saveApkPreset(preset: ApkPreset) {
+        val existing = getApkPresets().toMutableList()
+        existing.removeAll { it.name == preset.name }
+        existing.add(preset)
+        saveApkPresets(existing)
+    }
+
+    fun getApkPresets(): List<ApkPreset> {
+        val jsonStr = prefs.getString("apk_presets", null) ?: return defaultPresets()
+        return try {
+            val arr = JSONArray(jsonStr)
+            val list = mutableListOf<ApkPreset>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    ApkPreset(
+                        id = obj.optString("id"),
+                        name = obj.getString("name"),
+                        appName = obj.getString("appName"),
+                        packageName = obj.getString("packageName"),
+                        username = obj.getString("username"),
+                        entryFile = obj.optString("entryFile", "index.html")
+                    )
+                )
+            }
+            if (list.isEmpty()) defaultPresets() else list
+        } catch (_: Exception) {
+            defaultPresets()
+        }
+    }
+
+    private fun saveApkPresets(presets: List<ApkPreset>) {
+        val arr = JSONArray()
+        for (p in presets) {
+            arr.put(
+                JSONObject().apply {
+                    put("id", p.id)
+                    put("name", p.name)
+                    put("appName", p.appName)
+                    put("packageName", p.packageName)
+                    put("username", p.username)
+                    put("entryFile", p.entryFile)
+                }
+            )
+        }
+        prefs.edit().putString("apk_presets", arr.toString()).apply()
+    }
+
+    private fun defaultPresets(): List<ApkPreset> {
+        return listOf(
+            ApkPreset(
+                name = "Offline Arcade Game",
+                appName = "My HTML Game",
+                packageName = "com.developer.mygame",
+                username = "Developer",
+                entryFile = "index.html"
+            ),
+            ApkPreset(
+                name = "Online Web Utility",
+                appName = "My Web App",
+                packageName = "com.developer.mywebapp",
+                username = "Developer",
+                entryFile = "index.html"
+            )
+        )
     }
 
     companion object {

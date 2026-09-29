@@ -80,11 +80,16 @@ fun SettingsScreen(
     var activeProvider by remember { mutableStateOf(aiSettings.provider) }
     var geminiKey by remember { mutableStateOf(aiSettings.geminiApiKey) }
     var openAiKey by remember { mutableStateOf(aiSettings.openAiApiKey) }
+    var xaiKey by remember { mutableStateOf(aiSettings.xaiApiKey) }
+    var anthropicKey by remember { mutableStateOf(aiSettings.anthropicApiKey) }
     var customEndpoint by remember { mutableStateOf(aiSettings.customEndpoint) }
     var customKey by remember { mutableStateOf(aiSettings.customApiKey) }
     var selectedModel by remember { mutableStateOf(aiSettings.selectedModel) }
     var aiMode by remember { mutableStateOf(aiSettings.mode) }
     var experienceLevel by remember { mutableStateOf(aiSettings.experienceLevel) }
+    var preferNativeAdapter by remember { mutableStateOf(aiSettings.preferNativeAdapter) }
+    var enableThinking by remember { mutableStateOf(aiSettings.enableThinking) }
+    var reasoningEffort by remember { mutableStateOf(aiSettings.reasoningEffort) }
 
     var fontSize by remember { mutableFloatStateOf(editorSettings.fontSizeSp) }
     var tabSize by remember { mutableIntStateOf(editorSettings.tabSize) }
@@ -105,11 +110,16 @@ fun SettingsScreen(
             provider = activeProvider,
             geminiApiKey = geminiKey,
             openAiApiKey = openAiKey,
+            xaiApiKey = xaiKey,
+            anthropicApiKey = anthropicKey,
             customEndpoint = customEndpoint,
             customApiKey = customKey,
             selectedModel = selectedModel,
             mode = aiMode,
-            experienceLevel = experienceLevel
+            experienceLevel = experienceLevel,
+            preferNativeAdapter = preferNativeAdapter,
+            enableThinking = enableThinking,
+            reasoningEffort = reasoningEffort
         )
         onSaveAiSettings(updated)
     }
@@ -156,13 +166,22 @@ fun SettingsScreen(
                 Text("Select your AI engine. Keys are saved in local encrypted storage and never exposed.", fontSize = 12.sp, color = Color(0xFF94A3B8))
 
                 // Provider Selection Chips
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     AiProvider.values().forEach { prov ->
                         FilterChip(
                             selected = activeProvider == prov,
                             onClick = {
                                 activeProvider = prov
-                                selectedModel = if (prov == AiProvider.GEMINI) "gemini-2.5-flash" else "gpt-4o"
+                                selectedModel = when (prov) {
+                                    AiProvider.GEMINI -> "gemini-3.8-flash"
+                                    AiProvider.OPENAI -> "gpt-4o"
+                                    AiProvider.XAI -> "grok-2"
+                                    AiProvider.ANTHROPIC -> "claude-3-5-sonnet-20241022"
+                                    AiProvider.CUSTOM -> "gpt-4o"
+                                }
                                 commitAiChanges()
                             },
                             label = { Text(prov.displayName, fontSize = 11.sp) },
@@ -180,6 +199,8 @@ fun SettingsScreen(
                 val currentKey = when (activeProvider) {
                     AiProvider.GEMINI -> geminiKey
                     AiProvider.OPENAI -> openAiKey
+                    AiProvider.XAI -> xaiKey
+                    AiProvider.ANTHROPIC -> anthropicKey
                     AiProvider.CUSTOM -> customKey
                 }
                 val hasKey = currentKey.isNotBlank()
@@ -221,6 +242,8 @@ fun SettingsScreen(
                                         when (activeProvider) {
                                             AiProvider.GEMINI -> geminiKey = ""
                                             AiProvider.OPENAI -> openAiKey = ""
+                                            AiProvider.XAI -> xaiKey = ""
+                                            AiProvider.ANTHROPIC -> anthropicKey = ""
                                             AiProvider.CUSTOM -> customKey = ""
                                         }
                                         commitAiChanges()
@@ -246,6 +269,8 @@ fun SettingsScreen(
                                     provider = activeProvider,
                                     geminiApiKey = geminiKey,
                                     openAiApiKey = openAiKey,
+                                    xaiApiKey = xaiKey,
+                                    anthropicApiKey = anthropicKey,
                                     customApiKey = customKey
                                 )
                                 val res = aiService.testConnection(currentSettings)
@@ -276,6 +301,8 @@ fun SettingsScreen(
                                     provider = activeProvider,
                                     geminiApiKey = geminiKey,
                                     openAiApiKey = openAiKey,
+                                    xaiApiKey = xaiKey,
+                                    anthropicApiKey = anthropicKey,
                                     customApiKey = customKey
                                 )
                                 availableModels = aiService.fetchAvailableModels(currentSettings)
@@ -297,11 +324,7 @@ fun SettingsScreen(
                 }
 
                 // Model Selection Chips
-                val modelList = if (availableModels.isNotEmpty()) availableModels else when (activeProvider) {
-                    AiProvider.GEMINI -> listOf("gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash")
-                    AiProvider.OPENAI -> listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo")
-                    AiProvider.CUSTOM -> listOf("gpt-4o", "gpt-4o-mini")
-                }
+                val modelList = if (availableModels.isNotEmpty()) availableModels else aiService.getDefaultModels(activeProvider)
 
                 Text("Active Model", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                 Row(
@@ -477,6 +500,8 @@ fun SettingsScreen(
                     when (targetProvider) {
                         AiProvider.GEMINI -> geminiKey = keyInputValue.trim()
                         AiProvider.OPENAI -> openAiKey = keyInputValue.trim()
+                        AiProvider.XAI -> xaiKey = keyInputValue.trim()
+                        AiProvider.ANTHROPIC -> anthropicKey = keyInputValue.trim()
                         AiProvider.CUSTOM -> customKey = keyInputValue.trim()
                     }
                     commitAiChanges()

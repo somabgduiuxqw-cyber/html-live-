@@ -70,19 +70,26 @@ data class EditorSettings(
 enum class AiProvider(val displayName: String) {
     GEMINI("Google Gemini"),
     OPENAI("OpenAI (ChatGPT)"),
-    CUSTOM("Custom Endpoint")
+    XAI("xAI Grok"),
+    ANTHROPIC("Anthropic Claude"),
+    CUSTOM("Custom / Compatible")
 }
 
 data class AiSettings(
     val provider: AiProvider = AiProvider.GEMINI,
     val geminiApiKey: String = "",
     val openAiApiKey: String = "",
+    val xaiApiKey: String = "",
+    val anthropicApiKey: String = "",
     val customEndpoint: String = "",
     val customApiKey: String = "",
     val customModel: String = "gpt-4o",
-    val selectedModel: String = "gemini-2.5-flash",
+    val selectedModel: String = "gemini-3.8-flash",
     val mode: String = "build_explain", // "just_build", "build_explain", "teach_build", "hints"
-    val experienceLevel: String = "beginner" // "beginner", "intermediate", "advanced"
+    val experienceLevel: String = "beginner", // "beginner", "intermediate", "advanced"
+    val preferNativeAdapter: Boolean = true,
+    val enableThinking: Boolean = true,
+    val reasoningEffort: String = "medium" // "low", "medium", "high"
 )
 
 data class AiChatMessage(

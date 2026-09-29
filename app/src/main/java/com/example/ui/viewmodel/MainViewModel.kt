@@ -73,6 +73,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _savedUsername = MutableStateFlow(preferences.getApkUsername())
     val savedUsername: StateFlow<String> = _savedUsername.asStateFlow()
 
+    val aiDebugInfo = aiService.lastDebugInfo
+
     fun saveApkUsername(username: String) {
         _savedUsername.value = username
         preferences.saveApkUsername(username)

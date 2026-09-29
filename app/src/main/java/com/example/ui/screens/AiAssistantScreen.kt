@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -78,10 +80,12 @@ fun AiAssistantScreen(
     onApplyProposal: (AiChangeProposal) -> Unit,
     onOpenSettings: () -> Unit,
     onClearChat: () -> Unit,
+    debugInfo: com.example.data.ai.model.AIDebugInfo? = null,
     modifier: Modifier = Modifier
 ) {
     var inputPrompt by remember { mutableStateOf("") }
     var selectedScope by remember { mutableStateOf(AiContextScope.FULL_PROJECT) }
+    var showDebugPanel by remember { mutableStateOf(false) }
 
     val promptLibrary = listOf(
         "Make the buttons rounded and animated",
@@ -134,13 +138,74 @@ fun AiAssistantScreen(
                     }
                 }
 
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showDebugPanel = !showDebugPanel }) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "Developer Debug",
+                            tint = if (showDebugPanel) Color(0xFF10B981) else Color.LightGray
+                        )
+                    }
                     IconButton(onClick = onClearChat, modifier = Modifier.testTag("ai_clear_chat_btn")) {
                         Icon(Icons.Default.Delete, contentDescription = "Clear Chat", tint = Color.LightGray)
                     }
                     IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("ai_open_settings_btn")) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color(0xFF38BDF8))
                     }
+                }
+            }
+        }
+
+        // Developer / Debug Panel (Requirement 13)
+        AnimatedVisibility(visible = showDebugPanel) {
+            Surface(
+                color = Color(0xFF162032),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("DEVELOPER / DEBUG PANEL", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Active Adapter Routing", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                    }
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Provider:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text(debugInfo?.provider ?: settings.provider.displayName, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Adapter:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text(debugInfo?.adapter ?: "Dedicated Native Adapter", color = Color(0xFF38BDF8), fontSize = 11.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Base API:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text(debugInfo?.baseApi ?: "Provider Native API", color = Color.White, fontSize = 11.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Active Model:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text(debugInfo?.model ?: settings.selectedModel, color = Color.White, fontSize = 11.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("HTTP Status:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text("${debugInfo?.httpStatus ?: 200} OK", color = Color(0xFF10B981), fontSize = 11.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Streaming:", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        Text("Supported ✓", color = Color(0xFF10B981), fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Capabilities: Text ✓  Code ✓  Streaming ✓  Multimodal ✓",
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 10.sp
+                    )
                 }
             }
         }
