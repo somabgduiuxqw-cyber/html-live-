@@ -88,7 +88,11 @@ fun HttpRequestModal(
     var method by remember { mutableStateOf("GET") }
     var responseBody by remember { mutableStateOf("") }
     var responseStatus by remember { mutableStateOf("") }
+    var responseHeaders by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var responseSizeBytes by remember { mutableStateOf(0L) }
     var responseTimeMs by remember { mutableStateOf(0L) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showHeaders by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -98,7 +102,7 @@ fun HttpRequestModal(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Http, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(24.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("HTTP Request Tester", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("HTTP Request Tool", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -127,6 +131,7 @@ fun HttpRequestModal(
                 Button(
                     onClick = {
                         isLoading = true
+                        errorMessage = null
                         scope.launch {
                             val client = OkHttpClient.Builder()
                                 .connectTimeout(10, TimeUnit.SECONDS)
@@ -148,12 +153,22 @@ fun HttpRequestModal(
                                     client.newCall(reqBuilder.build()).execute().use { resp ->
                                         responseTimeMs = System.currentTimeMillis() - startTime
                                         responseStatus = "${resp.code} ${resp.message}"
-                                        responseBody = resp.body?.string() ?: "(Empty Body)"
+                                        val headersList = mutableListOf<Pair<String, String>>()
+                                        for (i in 0 until resp.headers.size) {
+                                            headersList.add(resp.headers.name(i) to resp.headers.value(i))
+                                        }
+                                        responseHeaders = headersList
+                                        val bodyBytes = resp.body?.bytes() ?: ByteArray(0)
+                                        responseSizeBytes = bodyBytes.size.toLong()
+                                        responseBody = bodyBytes.toString(Charsets.UTF_8).ifEmpty { "(Empty Body)" }
                                     }
                                 }
                             } catch (e: Exception) {
                                 responseStatus = "Error"
-                                responseBody = "Failed: ${e.message}"
+                                errorMessage = e.message ?: e.javaClass.simpleName
+                                responseBody = ""
+                                responseSizeBytes = 0L
+                                responseHeaders = emptyList()
                             } finally {
                                 isLoading = false
                             }
@@ -169,19 +184,82 @@ fun HttpRequestModal(
                     } else {
                         Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Send Request")
+                        Text("Send $method Request")
                     }
                 }
 
-                if (responseStatus.isNotBlank()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (errorMessage != null) {
+                    Surface(
+                        color = Color(0xFF450A0A),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Status: $responseStatus", color = Color(0xFF34D399), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("$responseTimeMs ms", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("Request Error:", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444), fontSize = 12.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(errorMessage!!, color = Color(0xFFFECACA), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+
+                if (responseStatus.isNotBlank() && errorMessage == null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Status Code: $responseStatus", color = Color(0xFF34D399), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("$responseTimeMs ms", color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                val sizeStr = if (responseSizeBytes < 1024) "$responseSizeBytes bytes" else String.format("%.2f KB", responseSizeBytes / 1024.0)
+                                Text("Response size: $sizeStr", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                Text("${responseHeaders.size} headers", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                            }
+                        }
                     }
 
+                    // Headers toggle
+                    if (responseHeaders.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Response Headers", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            TextButton(onClick = { showHeaders = !showHeaders }) {
+                                Text(if (showHeaders) "Hide" else "Show Headers", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                            }
+                        }
+
+                        if (showHeaders) {
+                            Surface(
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth().height(120.dp).verticalScroll(rememberScrollState())
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    responseHeaders.forEach { (name, value) ->
+                                        Row {
+                                            Text("$name: ", fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                            Text(value, color = Color(0xFFCBD5E1), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text("Response Body", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                     Surface(
                         color = Color(0xFF0F172A),
                         shape = RoundedCornerShape(6.dp),

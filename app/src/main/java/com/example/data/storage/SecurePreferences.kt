@@ -98,6 +98,14 @@ class SecurePreferences(context: Context) {
         prefs.edit().putStringSet("completed_lesson_ids", ids).apply()
     }
 
+    fun getApkUsername(): String {
+        return prefs.getString("apk_builder_username", "Developer") ?: "Developer"
+    }
+
+    fun saveApkUsername(username: String) {
+        prefs.edit().putString("apk_builder_username", username).apply()
+    }
+
     companion object {
         fun maskKey(key: String): String {
             if (key.length <= 8) return "••••••••"

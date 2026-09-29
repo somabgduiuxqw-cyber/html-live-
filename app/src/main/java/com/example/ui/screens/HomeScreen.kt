@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Commit
@@ -99,6 +100,7 @@ fun HomeScreen(
     onGameBuilder: () -> Unit,
     onGameMapEditor: () -> Unit,
     onSelectTemplate: (TemplateProject) -> Unit,
+    onHtmlToApk: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val experienceLevels = listOf(
@@ -172,6 +174,51 @@ fun HomeScreen(
                             )
                         )
                     }
+                }
+            }
+        }
+
+        // -------------------------------------------------------------
+        // SECTION: HTML → APK PACKAGER (Requirement 1, 20)
+        // -------------------------------------------------------------
+        SectionHeader(title = "HTML → APK Packager", subtitle = "Package websites & games into lightweight Android WebView APKs")
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth().testTag("action_html_to_apk"),
+            onClick = onHtmlToApk
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF064E3B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Android, null, tint = Color(0xFF34D399), modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("HTML → APK BUILDER", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 15.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Surface(color = Color(0xFF10B981), shape = MaterialTheme.shapes.extraSmall) {
+                            Text("LIGHTWEIGHT", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        "Package project into a real signed Android WebView APK. Preserves relative file paths, full JavaScript execution, offline & online modes.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8),
+                        lineHeight = 15.sp
+                    )
                 }
             }
         }

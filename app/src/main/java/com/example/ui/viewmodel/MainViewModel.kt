@@ -27,6 +27,13 @@ import com.example.model.Project
 import com.example.model.ProjectFile
 import com.example.model.ProjectType
 import com.example.ui.screens.AiContextScope
+import android.content.Context
+import android.content.Intent
+import com.example.data.apk.ApkBuilderManager
+import com.example.data.apk.ApkBuildProgress
+import com.example.data.apk.ApkConfig
+import com.example.data.apk.ApkValidationResult
+import com.example.data.apk.ApkBuildStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +46,7 @@ import java.util.UUID
 enum class NavDestination(val title: String, val iconName: String) {
     HOME("Home", "home"),
     EDITOR("Editor", "code"),
+    APK_BUILDER("HTML → APK", "android"),
     AI("AI", "auto_awesome"),
     GIT_CLONE("Git Clone", "download"),
     GIT_PROJECT("Git Hub", "commit"),
@@ -54,6 +62,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val repository = ProjectRepository(application)
     val preferences = SecurePreferences(application)
     val aiService = AiService()
+    val apkBuilderManager = ApkBuilderManager(application)
+
+    private val _apkBuildProgress = MutableStateFlow(ApkBuildProgress())
+    val apkBuildProgress: StateFlow<ApkBuildProgress> = _apkBuildProgress.asStateFlow()
+
+    private val _apkValidationResult = MutableStateFlow<ApkValidationResult?>(null)
+    val apkValidationResult: StateFlow<ApkValidationResult?> = _apkValidationResult.asStateFlow()
+
+    private val _savedUsername = MutableStateFlow(preferences.getApkUsername())
+    val savedUsername: StateFlow<String> = _savedUsername.asStateFlow()
+
+    fun saveApkUsername(username: String) {
+        _savedUsername.value = username
+        preferences.saveApkUsername(username)
+    }
+
+    fun buildApk(config: ApkConfig) {
+        val files = _activeFiles.value
+        viewModelScope.launch {
+            _apkBuildProgress.value = ApkBuildProgress(
+                step = ApkBuildStep.PACKAGING,
+                statusMessage = "Starting APK packaging...",
+                percentage = 0.05f,
+                isPackaging = true
+            )
+            val result = apkBuilderManager.buildApk(config, files) { progress ->
+                _apkBuildProgress.value = progress
+            }
+            _apkValidationResult.value = result
+        }
+    }
+
+    fun installCurrentApk(context: Context) {
+        val file = _apkValidationResult.value?.outputFile ?: return
+        try {
+            val intent = apkBuilderManager.getInstallIntent(file)
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
+
+    fun shareCurrentApk(context: Context) {
+        val file = _apkValidationResult.value?.outputFile ?: return
+        try {
+            val intent = apkBuilderManager.getShareIntent(file)
+            context.startActivity(Intent.createChooser(intent, "Share APK"))
+        } catch (_: Exception) {}
+    }
 
     val allProjects: StateFlow<List<Project>> = repository.allProjects
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

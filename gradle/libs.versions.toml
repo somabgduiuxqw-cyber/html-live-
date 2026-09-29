@@ -48,6 +48,10 @@ androidx-test-core = { group = "androidx.test", name = "core", version = "1.6.1"
 # Git
 jgit = { group = "org.eclipse.jgit", name = "org.eclipse.jgit", version = "5.13.3.202401111512-r" }
 
+# Bouncy Castle for APK signing
+bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version = "1.78.1" }
+bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version = "1.78.1" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

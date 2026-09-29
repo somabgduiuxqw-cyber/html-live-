@@ -76,6 +76,10 @@ dependencies {
     // Git
     implementation(libs.jgit)
 
+    // APK Signing
+    implementation(libs.bcpkix)
+    implementation(libs.bcprov)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)

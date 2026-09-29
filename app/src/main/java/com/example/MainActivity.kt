@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Commit
@@ -70,6 +71,7 @@ import com.example.ui.screens.LearningScreen
 import com.example.ui.screens.PhotoToCodeModal
 import com.example.ui.screens.ProjectsScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.apk.ApkBuilderScreen
 import com.example.ui.screens.git.GitCloneScreen
 import com.example.ui.screens.git.GitProjectScreen
 import com.example.ui.theme.HtmlLiveTheme
@@ -222,6 +224,7 @@ private fun NavIconWithBadge(destination: NavDestination, errorCount: Int) {
     val icon = when (destination) {
         NavDestination.HOME -> Icons.Default.Home
         NavDestination.EDITOR -> Icons.Default.Code
+        NavDestination.APK_BUILDER -> Icons.Default.Android
         NavDestination.AI -> Icons.Default.AutoAwesome
         NavDestination.GIT_CLONE -> Icons.Default.Download
         NavDestination.GIT_PROJECT -> Icons.Default.Commit
@@ -329,7 +332,38 @@ private fun ScreenContent(
                 onGameMapEditor = { viewModel.navigateTo(NavDestination.GAMES) },
                 onSelectTemplate = { template ->
                     viewModel.createProject(template.title, template)
-                }
+                },
+                onHtmlToApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) }
+            )
+        }
+
+        NavDestination.APK_BUILDER -> {
+            val apkProgress by viewModel.apkBuildProgress.collectAsState()
+            val apkValidation by viewModel.apkValidationResult.collectAsState()
+            val savedUser by viewModel.savedUsername.collectAsState()
+            val context = androidx.compose.ui.platform.LocalContext.current
+
+            ApkBuilderScreen(
+                projects = allProjects,
+                activeProject = activeProject ?: allProjects.firstOrNull(),
+                activeFiles = activeFiles,
+                savedUsername = savedUser,
+                onSaveUsername = { viewModel.saveApkUsername(it) },
+                onSelectProject = { proj ->
+                    viewModel.selectProject(proj)
+                },
+                onBuildApk = { config ->
+                    viewModel.buildApk(config)
+                },
+                buildProgress = apkProgress,
+                validationResult = apkValidation,
+                onInstallApk = { viewModel.installCurrentApk(context) },
+                onShareApk = { viewModel.shareCurrentApk(context) },
+                onOpenProjectPreview = { proj ->
+                    viewModel.selectProject(proj)
+                    viewModel.navigateTo(NavDestination.EDITOR)
+                },
+                onBack = { viewModel.handleBack() }
             )
         }
 
@@ -419,7 +453,8 @@ private fun ScreenContent(
                     onOpenAiTab = { viewModel.navigateTo(NavDestination.AI) },
                     onLearnTopic = {
                         viewModel.navigateTo(NavDestination.LEARN)
-                    }
+                    },
+                    onPackageApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) }
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -494,7 +529,11 @@ private fun ScreenContent(
                 onDuplicateProject = { viewModel.duplicateProject(it) },
                 onExportZip = { viewModel.exportProjectZip(it) },
                 onImportZip = { name, bytes -> viewModel.importProjectZip(name, bytes) },
-                onCreateSnapshot = { viewModel.createProjectSnapshot(it) }
+                onCreateSnapshot = { viewModel.createProjectSnapshot(it) },
+                onPackageApk = { proj ->
+                    viewModel.selectProject(proj)
+                    viewModel.navigateTo(NavDestination.APK_BUILDER)
+                }
             )
         }
 

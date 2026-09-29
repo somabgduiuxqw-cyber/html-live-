@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -82,6 +83,7 @@ fun ProjectsScreen(
     onExportZip: (projectId: String) -> File?,
     onImportZip: (name: String, bytes: ByteArray) -> Unit,
     onCreateSnapshot: (projectId: String) -> Unit,
+    onPackageApk: ((Project) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -186,7 +188,8 @@ fun ProjectsScreen(
                     onSnapshot = {
                         onCreateSnapshot(project.id)
                         Toast.makeText(context, "Snapshot saved!", Toast.LENGTH_SHORT).show()
-                    }
+                    },
+                    onPackageApk = { onPackageApk?.invoke(project) }
                 )
             }
         }
@@ -295,7 +298,8 @@ private fun ProjectItemCard(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
-    onSnapshot: () -> Unit
+    onSnapshot: () -> Unit,
+    onPackageApk: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val dateStr = remember(project.updatedAt) {
@@ -361,6 +365,11 @@ private fun ProjectItemCard(
                         text = { Text("Save Snapshot (Backup)") },
                         onClick = { showMenu = false; onSnapshot() },
                         leadingIcon = { Icon(Icons.Default.History, null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Package to APK") },
+                        onClick = { showMenu = false; onPackageApk?.invoke() },
+                        leadingIcon = { Icon(Icons.Default.Android, null, tint = Color(0xFF10B981)) }
                     )
                     DropdownMenuItem(
                         text = { Text("Export ZIP Archive") },

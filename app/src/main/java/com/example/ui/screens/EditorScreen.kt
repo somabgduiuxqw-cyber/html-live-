@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -75,6 +76,7 @@ fun EditorScreen(
     onFixWithAi: (ConsoleMessage) -> Unit,
     onOpenAiTab: () -> Unit,
     onLearnTopic: (String) -> Unit,
+    onPackageApk: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var displayMode by remember { mutableStateOf(ViewDisplayMode.SPLIT) }
@@ -180,6 +182,16 @@ fun EditorScreen(
                         modifier = Modifier.size(32.dp).testTag("editor_ask_ai_shortcut_btn")
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = "AI Assistant", tint = Color(0xFFFBBF24), modifier = Modifier.size(18.dp))
+                    }
+
+                    // Package APK button
+                    if (onPackageApk != null) {
+                        IconButton(
+                            onClick = onPackageApk,
+                            modifier = Modifier.size(32.dp).testTag("editor_package_apk_btn")
+                        ) {
+                            Icon(Icons.Default.Android, contentDescription = "Package to APK", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
