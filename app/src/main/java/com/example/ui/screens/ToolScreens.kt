@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -386,6 +390,15 @@ fun PhotoToCodeModal(
     onDismiss: () -> Unit,
     onInjectCode: (html: String, css: String) -> Unit
 ) {
+    var selectedPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedTab by remember { mutableStateOf(0) } // 0: Wireframes, 1: Pick Photo
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        selectedPhotoUri = uri
+    }
+
     val templates = listOf(
         "Hero Landing Banner" to Pair(
             "<section class=\"hero\"><h1>Transform Your Web Vision</h1><p>Craft responsive web applications on mobile.</p><button class=\"btn\">Get Started</button></section>",
@@ -417,44 +430,106 @@ fun PhotoToCodeModal(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    "Select a layout prototype or design wireframe to instantly convert into clean, responsive HTML & CSS markup:",
-                    fontSize = 12.sp,
-                    color = Color(0xFFCBD5E1)
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        label = { Text("Layout Wireframes", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        label = { Text("Pick Photo / Screenshot", fontSize = 11.sp) }
+                    )
+                }
 
-                templates.forEachIndexed { idx, (name, _) ->
-                    Surface(
-                        onClick = { selectedIdx = idx },
-                        color = if (selectedIdx == idx) Color(0xFF0369A1) else Color(0xFF1E293B),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                if (selectedTab == 0) {
+                    Text(
+                        "Select a responsive UI wireframe prototype to instantly inject into your active project:",
+                        fontSize = 12.sp,
+                        color = Color(0xFFCBD5E1)
+                    )
+
+                    templates.forEachIndexed { idx, (name, _) ->
+                        Surface(
+                            onClick = { selectedIdx = idx },
+                            color = if (selectedIdx == idx) Color(0xFF0369A1) else Color(0xFF1E293B),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            if (selectedIdx == idx) {
-                                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                if (selectedIdx == idx) {
+                                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
-                }
 
-                Spacer(Modifier.height(4.dp))
-                Text("Generated Preview:", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Generated Preview:", fontSize = 11.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
 
-                Surface(
-                    color = Color(0xFF0F172A),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(templates[selectedIdx].second.first, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color(0xFFF97316))
-                        Spacer(Modifier.height(6.dp))
-                        Text(templates[selectedIdx].second.second, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color(0xFF38BDF8))
+                    Surface(
+                        color = Color(0xFF0F172A),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(templates[selectedIdx].second.first, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color(0xFFF97316))
+                            Spacer(Modifier.height(6.dp))
+                            Text(templates[selectedIdx].second.second, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color(0xFF38BDF8))
+                        }
+                    }
+                } else {
+                    Text(
+                        "Select a webpage wireframe or UI screenshot from your device:",
+                        fontSize = 12.sp,
+                        color = Color(0xFFCBD5E1)
+                    )
+
+                    Button(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (selectedPhotoUri != null) "Choose Different Photo" else "Select Photo from Device")
+                    }
+
+                    if (selectedPhotoUri != null) {
+                        Surface(
+                            color = Color(0xFF1E293B),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("Selected Image:", fontWeight = FontWeight.Bold, color = Color(0xFF34D399), fontSize = 12.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    selectedPhotoUri.toString(),
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 2
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Note: Direct multimodal image-to-code requires an API key in Settings (Google Gemini Flash with vision). You can also share photos directly in AI Assistant.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -462,12 +537,18 @@ fun PhotoToCodeModal(
         confirmButton = {
             Button(
                 onClick = {
-                    val pair = templates[selectedIdx].second
-                    onInjectCode(pair.first, pair.second)
+                    if (selectedTab == 0) {
+                        val pair = templates[selectedIdx].second
+                        onInjectCode(pair.first, pair.second)
+                    } else if (selectedPhotoUri != null) {
+                        val imgTag = "<div class=\"image-container\"><img src=\"${selectedPhotoUri}\" alt=\"Design Prototype\" style=\"max-width:100%; border-radius:8px;\"></div>"
+                        val imgCss = ".image-container { display: flex; justify-content: center; padding: 20px; }"
+                        onInjectCode(imgTag, imgCss)
+                    }
                     onDismiss()
                 }
             ) {
-                Text("Add Code to Project")
+                Text("Inject into Project")
             }
         },
         dismissButton = {

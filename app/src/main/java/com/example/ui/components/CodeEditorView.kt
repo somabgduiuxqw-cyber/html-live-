@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.FormatAlignLeft
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Undo
@@ -67,7 +69,9 @@ fun CodeEditorView(
     fileName: String,
     settings: EditorSettings,
     onCodeChanged: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null
 ) {
     var textFieldValue by remember(fileName) {
         mutableStateOf(TextFieldValue(code, selection = TextRange(0)))
@@ -326,6 +330,15 @@ fun CodeEditorView(
             }
             IconButton(onClick = { handleDeleteLine() }, modifier = Modifier.testTag("editor_delete_line_btn")) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete Line", tint = Color(0xFFEF4444))
+            }
+            if (onToggleFullscreen != null) {
+                IconButton(onClick = onToggleFullscreen, modifier = Modifier.testTag("editor_fullscreen_btn")) {
+                    Icon(
+                        if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "Exit Fullscreen" else "Editor Fullscreen",
+                        tint = Color(0xFF38BDF8)
+                    )
+                }
             }
         }
 

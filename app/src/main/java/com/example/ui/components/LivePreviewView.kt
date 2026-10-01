@@ -32,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -106,7 +107,8 @@ fun LivePreviewView(
     onOpenConsole: () -> Unit,
     modifier: Modifier = Modifier,
     isFullscreen: Boolean = false,
-    onToggleFullscreen: () -> Unit = {}
+    onToggleFullscreen: () -> Unit = {},
+    onOpenSourceViewer: (() -> Unit)? = null
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var selectedPreset by remember { mutableStateOf(ViewportPreset.RESPONSIVE) }
@@ -221,6 +223,21 @@ fun LivePreviewView(
                             }
                         ) {
                             Icon(Icons.Default.Terminal, contentDescription = "Console", tint = if (errorCount > 0) Color(0xFFEF4444) else Color(0xFF38BDF8))
+                        }
+                    }
+
+                    // View Source / Inspect DOM
+                    if (onOpenSourceViewer != null) {
+                        IconButton(
+                            onClick = onOpenSourceViewer,
+                            modifier = Modifier.size(36.dp).testTag("preview_btn_view_source")
+                        ) {
+                            Icon(
+                                Icons.Default.Code,
+                                contentDescription = "View Source",
+                                tint = Color(0xFFF97316),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
 

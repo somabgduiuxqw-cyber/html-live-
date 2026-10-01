@@ -45,7 +45,11 @@ import java.util.UUID
 
 enum class NavDestination(val title: String, val iconName: String) {
     HOME("Home", "home"),
+    PROJECTS("Projects", "folder"),
     EDITOR("Editor", "code"),
+    PREVIEW("Preview", "visibility"),
+    TOOLS("Tools", "build"),
+    SOURCE_CODE("Source Code", "source"),
     APK_BUILDER("HTML → APK", "android"),
     AI("AI", "auto_awesome"),
     GIT_CLONE("Git Clone", "download"),
@@ -53,7 +57,6 @@ enum class NavDestination(val title: String, val iconName: String) {
     LEARN("Learn", "school"),
     GAMES("Game Studio", "sports_esports"),
     WEBSITES("Website Builder", "web"),
-    PROJECTS("Projects", "folder"),
     COLORS("Color Lab", "palette"),
     SETTINGS("Settings", "settings")
 }
@@ -266,6 +269,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun renameFile(oldName: String, newName: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            repository.renameFile(proj.id, oldName, newName)
+            if (_currentFileName.value == oldName) {
+                _currentFileName.value = newName
+            }
+        }
+    }
+
+    fun duplicateFile(fileName: String) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            repository.duplicateFile(proj.id, fileName)
+        }
+    }
+
     fun createProject(name: String, template: TemplateProject?) {
         viewModelScope.launch {
             val proj = repository.createProject(name, template = template)
@@ -402,6 +422,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.saveFile(proj.id, "script.js", js)
             selectProject(proj)
             navigateTo(NavDestination.EDITOR)
+        }
+    }
+
+    fun openSourceCodeInEditor(projectName: String, sourceCode: String, extension: String) {
+        viewModelScope.launch {
+            val mainFileName = when (extension.lowercase()) {
+                "css" -> "style.css"
+                "js" -> "script.js"
+                "json" -> "data.json"
+                else -> "index.html"
+            }
+            val proj = repository.createProject(projectName)
+            repository.saveFile(proj.id, mainFileName, sourceCode)
+            if (mainFileName != "index.html") {
+                repository.saveFile(
+                    proj.id,
+                    "index.html",
+                    "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>$projectName</title>\n</head>\n<body>\n  <pre>$sourceCode</pre>\n</body>\n</html>"
+                )
+            }
+            selectProject(proj)
+            selectFile(mainFileName)
+            navigateTo(NavDestination.EDITOR)
+        }
+    }
+
+    fun saveSourceToProject(projectName: String, sourceCode: String, extension: String) {
+        viewModelScope.launch {
+            val mainFileName = when (extension.lowercase()) {
+                "css" -> "style.css"
+                "js" -> "script.js"
+                "json" -> "data.json"
+                else -> "index.html"
+            }
+            val proj = repository.createProject(projectName)
+            repository.saveFile(proj.id, mainFileName, sourceCode)
         }
     }
 

@@ -132,6 +132,21 @@ class ProjectRepository(private val context: Context) {
         dao.deleteFile(projectId, fileName)
     }
 
+    suspend fun renameFile(projectId: String, oldName: String, newName: String) = withContext(Dispatchers.IO) {
+        val existing = dao.getFileByName(projectId, oldName) ?: return@withContext
+        dao.deleteFile(projectId, oldName)
+        val isMain = newName.equals("index.html", ignoreCase = true)
+        dao.insertFile(existing.copy(name = newName, path = newName, isMain = isMain))
+    }
+
+    suspend fun duplicateFile(projectId: String, fileName: String) = withContext(Dispatchers.IO) {
+        val existing = dao.getFileByName(projectId, fileName) ?: return@withContext
+        val ext = fileName.substringAfterLast('.', "")
+        val base = fileName.substringBeforeLast('.')
+        val newName = if (ext.isNotEmpty()) "${base}_copy.$ext" else "${base}_copy"
+        dao.insertFile(ProjectFileEntity(UUID.randomUUID().toString(), projectId, newName, newName, existing.content, false))
+    }
+
     suspend fun getFilesSync(projectId: String): List<ProjectFile> = withContext(Dispatchers.IO) {
         dao.getFilesForProjectSync(projectId).map { it.toDomain() }
     }

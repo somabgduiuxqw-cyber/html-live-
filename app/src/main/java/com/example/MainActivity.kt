@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.Download
@@ -31,7 +32,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Source
 import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -69,8 +72,11 @@ import com.example.ui.screens.HttpRequestModal
 import com.example.ui.screens.InAppBrowserModal
 import com.example.ui.screens.LearningScreen
 import com.example.ui.screens.PhotoToCodeModal
+import com.example.ui.screens.PreviewScreen
 import com.example.ui.screens.ProjectsScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.ToolsScreen
+import com.example.ui.screens.source.SourceCodeScreen
 import com.example.ui.screens.apk.ApkBuilderScreen
 import com.example.ui.screens.git.GitCloneScreen
 import com.example.ui.screens.git.GitProjectScreen
@@ -103,6 +109,14 @@ fun MainAppContainer(viewModel: MainViewModel = viewModel()) {
     val isAiLoading by viewModel.isAiLoading.collectAsState()
     val allProjects by viewModel.allProjects.collectAsState()
 
+    val primaryNavDestinations = listOf(
+        NavDestination.HOME,
+        NavDestination.PROJECTS,
+        NavDestination.EDITOR,
+        NavDestination.PREVIEW,
+        NavDestination.TOOLS
+    )
+
     // Handle back button across secondary screens
     BackHandler(enabled = currentNav != NavDestination.HOME) {
         viewModel.handleBack()
@@ -122,8 +136,8 @@ fun MainAppContainer(viewModel: MainViewModel = viewModel()) {
                     modifier = Modifier.fillMaxHeight().width(76.dp)
                 ) {
                     Spacer(Modifier.height(16.dp))
-                    NavDestination.values().forEach { destination ->
-                        val isSelected = currentNav == destination
+                    primaryNavDestinations.forEach { destination ->
+                        val isSelected = currentNav == destination || (destination == NavDestination.TOOLS && currentNav !in primaryNavDestinations)
                         NavigationRailItem(
                             selected = isSelected,
                             onClick = { viewModel.navigateTo(destination) },
@@ -160,26 +174,24 @@ fun MainAppContainer(viewModel: MainViewModel = viewModel()) {
                 }
             }
         } else {
-            // Mobile layout with clean Bottom Navigation Bar
+            // Mobile layout with clean 5-tab Material 3 Navigation Bar
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color(0xFF0F172A),
                 bottomBar = {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF1E293B))
-                            .horizontalScroll(rememberScrollState())
+                    NavigationBar(
+                        containerColor = Color(0xFF1E293B),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        NavDestination.values().forEach { destination ->
-                            val isSelected = currentNav == destination
+                        primaryNavDestinations.forEach { destination ->
+                            val isSelected = currentNav == destination || (destination == NavDestination.TOOLS && currentNav !in primaryNavDestinations)
                             NavigationBarItem(
                                 selected = isSelected,
                                 onClick = { viewModel.navigateTo(destination) },
                                 icon = {
                                     NavIconWithBadge(destination, errorCount)
                                 },
-                                label = { Text(destination.title, fontSize = 10.sp, maxLines = 1) },
+                                label = { Text(destination.title, fontSize = 11.sp, maxLines = 1) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = Color(0xFF0F172A),
                                     selectedTextColor = Color(0xFF38BDF8),
@@ -187,9 +199,7 @@ fun MainAppContainer(viewModel: MainViewModel = viewModel()) {
                                     unselectedIconColor = Color(0xFF94A3B8),
                                     unselectedTextColor = Color(0xFF94A3B8)
                                 ),
-                                modifier = Modifier
-                                    .width(76.dp)
-                                    .testTag("nav_bottom_${destination.name.lowercase()}")
+                                modifier = Modifier.testTag("nav_bottom_${destination.name.lowercase()}")
                             )
                         }
                     }
@@ -223,7 +233,10 @@ fun MainAppContainer(viewModel: MainViewModel = viewModel()) {
 private fun NavIconWithBadge(destination: NavDestination, errorCount: Int) {
     val icon = when (destination) {
         NavDestination.HOME -> Icons.Default.Home
+        NavDestination.PROJECTS -> Icons.Default.Folder
         NavDestination.EDITOR -> Icons.Default.Code
+        NavDestination.PREVIEW -> Icons.Default.Visibility
+        NavDestination.TOOLS -> Icons.Default.Build
         NavDestination.APK_BUILDER -> Icons.Default.Android
         NavDestination.AI -> Icons.Default.AutoAwesome
         NavDestination.GIT_CLONE -> Icons.Default.Download
@@ -231,12 +244,12 @@ private fun NavIconWithBadge(destination: NavDestination, errorCount: Int) {
         NavDestination.LEARN -> Icons.Default.School
         NavDestination.GAMES -> Icons.Default.SportsEsports
         NavDestination.WEBSITES -> Icons.Default.Web
-        NavDestination.PROJECTS -> Icons.Default.Folder
         NavDestination.COLORS -> Icons.Default.Palette
+        NavDestination.SOURCE_CODE -> Icons.Default.Source
         NavDestination.SETTINGS -> Icons.Default.Settings
     }
 
-    if (destination == NavDestination.EDITOR && errorCount > 0) {
+    if ((destination == NavDestination.EDITOR || destination == NavDestination.PREVIEW) && errorCount > 0) {
         BadgedBox(
             badge = {
                 Badge(containerColor = Color(0xFFEF4444)) {
@@ -296,8 +309,8 @@ private fun ScreenContent(
                 onMyProjects = { viewModel.navigateTo(NavDestination.PROJECTS) },
                 onQuickEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
                 onCodeEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
-                onLivePreview = { viewModel.navigateTo(NavDestination.EDITOR) },
-                onSourceCode = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onLivePreview = { viewModel.navigateTo(NavDestination.PREVIEW) },
+                onSourceCode = { viewModel.navigateTo(NavDestination.SOURCE_CODE) },
                 onHtmlExamples = { viewModel.navigateTo(NavDestination.LEARN) },
                 onHtmlTutorials = { viewModel.navigateTo(NavDestination.LEARN) },
                 onHtmlTags = { showTagsModal = true },
@@ -334,7 +347,11 @@ private fun ScreenContent(
                 onSelectTemplate = { template ->
                     viewModel.createProject(template.title, template)
                 },
-                onHtmlToApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) }
+                onHtmlToApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) },
+                onCreateProject = { name, tmpl -> viewModel.createProject(name, tmpl) },
+                onDeleteProject = { viewModel.deleteProject(it) },
+                onDuplicateProject = { viewModel.duplicateProject(it) },
+                onRenameProject = { proj, newName -> viewModel.renameProject(proj, newName) }
             )
         }
 
@@ -443,6 +460,8 @@ private fun ScreenContent(
                     onCodeChanged = { fname, code -> viewModel.updateFileContent(fname, code) },
                     onAddNewFile = { viewModel.addNewFile(it) },
                     onDeleteFile = { viewModel.deleteFile(it) },
+                    onRenameFile = { oldName, newName -> viewModel.renameFile(oldName, newName) },
+                    onDuplicateFile = { fileName -> viewModel.duplicateFile(fileName) },
                     onConsoleMessage = { viewModel.addConsoleMessage(it) },
                     onClearConsole = { viewModel.clearConsole() },
                     onFixWithAi = { msg ->
@@ -455,7 +474,9 @@ private fun ScreenContent(
                     onLearnTopic = {
                         viewModel.navigateTo(NavDestination.LEARN)
                     },
-                    onPackageApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) }
+                    onPackageApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) },
+                    onInspectSource = { viewModel.navigateTo(NavDestination.SOURCE_CODE) },
+                    onOpenGit = { viewModel.navigateTo(NavDestination.GIT_PROJECT) }
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -535,12 +556,68 @@ private fun ScreenContent(
                 onPackageApk = { proj ->
                     viewModel.selectProject(proj)
                     viewModel.navigateTo(NavDestination.APK_BUILDER)
+                },
+                onOpenGit = { proj ->
+                    viewModel.selectProject(proj)
+                    viewModel.navigateTo(NavDestination.GIT_PROJECT)
                 }
+            )
+        }
+
+        NavDestination.PREVIEW -> {
+            PreviewScreen(
+                project = activeProject,
+                files = activeFiles,
+                consoleMessages = consoleMessages,
+                onConsoleMessage = { viewModel.addConsoleMessage(it) },
+                onClearConsole = { viewModel.clearConsole() },
+                onOpenEditor = { viewModel.navigateTo(NavDestination.EDITOR) },
+                onOpenProjects = { viewModel.navigateTo(NavDestination.PROJECTS) },
+                onInspectSource = { viewModel.navigateTo(NavDestination.SOURCE_CODE) }
+            )
+        }
+
+        NavDestination.TOOLS -> {
+            ToolsScreen(
+                onSourceCode = { viewModel.navigateTo(NavDestination.SOURCE_CODE) },
+                onInAppBrowser = { showBrowserModal = true },
+                onHttpRequest = { showHttpModal = true },
+                onHtmlToApk = { viewModel.navigateTo(NavDestination.APK_BUILDER) },
+                onGitClone = { viewModel.navigateTo(NavDestination.GIT_CLONE) },
+                onGitProject = { viewModel.navigateTo(NavDestination.GIT_PROJECT) },
+                onAiAssistant = { viewModel.navigateTo(NavDestination.AI) },
+                onPhotoToCode = { showPhotoModal = true },
+                onColorLab = { viewModel.navigateTo(NavDestination.COLORS) },
+                onGameStudio = { viewModel.navigateTo(NavDestination.GAMES) },
+                onWebsiteBuilder = { viewModel.navigateTo(NavDestination.WEBSITES) },
+                onTutorials = { viewModel.navigateTo(NavDestination.LEARN) },
+                onHtmlTags = { showTagsModal = true },
+                onHtmlQna = { showQnaModal = true },
+                onSettings = { viewModel.navigateTo(NavDestination.SETTINGS) }
             )
         }
 
         NavDestination.COLORS -> {
             ColorLabView()
+        }
+
+        NavDestination.SOURCE_CODE -> {
+            SourceCodeScreen(
+                initialUrl = "https://example.com",
+                onOpenInEditor = { projName, code, ext ->
+                    viewModel.openSourceCodeInEditor(projName, code, ext)
+                },
+                onSaveToProject = { projName, code, ext ->
+                    viewModel.saveSourceToProject(projName, code, ext)
+                },
+                onSendToAi = { url, code ->
+                    viewModel.navigateTo(NavDestination.AI)
+                    val contextMap = activeFiles.associate { it.name to it.content }
+                    val prompt = "Analyze and explain this source code retrieved from $url:\n\n```\n${code.take(8000)}\n```\n\nPlease explain its layout architecture, styles, JavaScript features, and recommend improvements."
+                    viewModel.sendAiPrompt(prompt, contextMap, com.example.ui.screens.AiContextScope.FULL_PROJECT)
+                },
+                onBack = { viewModel.handleBack() }
+            )
         }
 
         NavDestination.SETTINGS -> {

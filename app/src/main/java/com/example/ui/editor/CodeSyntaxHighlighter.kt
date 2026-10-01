@@ -25,9 +25,9 @@ object CodeSyntaxHighlighter {
         if (code.isEmpty()) return builder.toAnnotatedString()
 
         when (extension.lowercase()) {
-            "html", "htm", "svg" -> highlightHtml(code, builder)
+            "html", "htm", "svg", "xml", "xhtml", "rss", "atom" -> highlightHtml(code, builder)
             "css" -> highlightCss(code, builder)
-            "js", "javascript" -> highlightJs(code, builder)
+            "js", "javascript", "ts", "typescript" -> highlightJs(code, builder)
             "json" -> highlightJson(code, builder)
             else -> highlightGeneric(code, builder)
         }

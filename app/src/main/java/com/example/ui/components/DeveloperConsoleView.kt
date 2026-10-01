@@ -56,9 +56,9 @@ fun DeveloperConsoleView(
     messages: List<ConsoleMessage>,
     onClear: () -> Unit,
     onClose: () -> Unit,
-    onErrorClicked: (fileName: String, line: Int) -> Unit,
-    onFixWithAi: (ConsoleMessage) -> Unit,
-    onLearnTopic: (String) -> Unit,
+    onErrorClicked: (fileName: String, line: Int) -> Unit = { _, _ -> },
+    onFixWithAi: (ConsoleMessage) -> Unit = {},
+    onLearnTopic: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedFilter by remember { mutableStateOf<ConsoleLevel?>(null) }
